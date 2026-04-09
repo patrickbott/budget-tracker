@@ -1,0 +1,15 @@
+node_modules
+.next
+.turbo
+dist
+build
+coverage
+.pnpm-store
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+*.generated.ts
+*.generated.tsx
+packages/db/migrations/**/*.sql
+.env.example
+CHANGELOG.md

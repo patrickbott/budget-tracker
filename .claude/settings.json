@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh repo:*)",
+      "Bash(gh run:*)",
+      "Bash(pnpm:*)",
+      "Bash(corepack:*)",
+      "Bash(node:*)",
+      "Bash(npx:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker:*)",
+      "Bash(bash scripts/*)",
+      "Bash(./scripts/*)"
+    ]
+  }
+}
