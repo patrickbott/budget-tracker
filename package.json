@@ -1,0 +1,32 @@
+{
+  "name": "budget-tracker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Self-hosted personal finance and budget tracker with SimpleFIN ingest and Claude-powered AI insights.",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "lint": "pnpm -r --parallel --if-present lint",
+    "typecheck": "pnpm -r --parallel --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "build": "pnpm -r --if-present build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "pnpm --filter @budget-tracker/db run db:generate",
+    "db:migrate": "pnpm --filter @budget-tracker/db run db:migrate",
+    "db:seed": "pnpm --filter @budget-tracker/db run db:seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.5",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^2.1.8"
+  }
+}
