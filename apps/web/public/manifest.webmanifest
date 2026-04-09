@@ -1,0 +1,16 @@
+{
+  "name": "Budget Tracker",
+  "short_name": "Budget",
+  "description": "Self-hosted personal finance tracker.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}
