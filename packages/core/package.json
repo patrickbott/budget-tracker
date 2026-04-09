@@ -1,0 +1,58 @@
+{
+  "name": "@budget-tracker/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Framework-agnostic business logic for Budget Tracker: double-entry invariant, rules engine, budget math, transfer detection, recurring detection, reporting.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./entries": {
+      "types": "./src/entries/index.ts",
+      "import": "./src/entries/index.ts"
+    },
+    "./rules": {
+      "types": "./src/rules/index.ts",
+      "import": "./src/rules/index.ts"
+    },
+    "./budgets": {
+      "types": "./src/budgets/index.ts",
+      "import": "./src/budgets/index.ts"
+    },
+    "./transfers": {
+      "types": "./src/transfers/index.ts",
+      "import": "./src/transfers/index.ts"
+    },
+    "./recurring": {
+      "types": "./src/recurring/index.ts",
+      "import": "./src/recurring/index.ts"
+    },
+    "./reports": {
+      "types": "./src/reports/index.ts",
+      "import": "./src/reports/index.ts"
+    },
+    "./types": {
+      "types": "./src/types/index.ts",
+      "import": "./src/types/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "decimal.js": "^10.4.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
