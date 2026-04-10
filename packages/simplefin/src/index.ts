@@ -1,33 +1,21 @@
-export {
-  BridgeError,
-  SetupTokenInvalidError,
-  AccessUrlError,
-  NetworkError,
-  ProtocolError,
-  RateLimitError,
-  AuthError,
-} from './errors.ts';
+// STUB — Instance A will replace this with the real implementation.
+// These no-op exports exist solely to let Next.js build resolve the module.
 
-export { encryptAccessUrl, decryptAccessUrl } from './crypto.ts';
+export function exchangeSetupToken(_token: string): Promise<string> {
+  throw new Error('@budget-tracker/simplefin stub: not implemented — merge Instance A first');
+}
 
-export {
-  AccountSetResponseSchema,
-  RawAccountSchema,
-  RawTransactionSchema,
-  ErrListItemSchema,
-} from './schema.ts';
+export function encryptAccessUrl(_url: string): string {
+  throw new Error('@budget-tracker/simplefin stub: not implemented — merge Instance A first');
+}
 
-export { parseAccountSet } from './parse.ts';
+export function decryptAccessUrl(_encrypted: string): string {
+  throw new Error('@budget-tracker/simplefin stub: not implemented — merge Instance A first');
+}
 
-export type {
-  ParsedAccountSet,
-  ParsedConnection,
-  ParsedAccount,
-  ParsedTransaction,
-  ParsedError,
-} from './types.ts';
-
-export { exchangeSetupToken } from './setup-token.ts';
-
-export { fetchAccountSet } from './client.ts';
-export type { FetchAccountSetOptions } from './client.ts';
+export function fetchAccountSet(
+  _accessUrl: string,
+  _options: { startDate: Date; endDate: Date },
+): Promise<unknown> {
+  throw new Error('@budget-tracker/simplefin stub: not implemented — merge Instance A first');
+}

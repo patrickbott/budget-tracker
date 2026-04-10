@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   // directly at `.ts` source (no build step), so Next needs to transpile it
   // alongside the app. Add any other workspace-internal TS packages here as
   // they come online.
-  transpilePackages: ["@budget-tracker/db"],
+  transpilePackages: ["@budget-tracker/db", "@budget-tracker/jobs", "@budget-tracker/core"],
 };
 
 export default nextConfig;
