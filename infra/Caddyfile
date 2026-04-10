@@ -1,0 +1,20 @@
+# Caddy reverse proxy for the budget-tracker app.
+#
+# `$APP_DOMAIN` is injected by docker-compose.prod.yml; Caddy auto-issues a
+# Let's Encrypt cert for it on first boot.
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy app:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Remove the Server header from upstream to avoid leaking framework info.
+		-Server
+	}
+}

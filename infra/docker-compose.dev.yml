@@ -1,0 +1,55 @@
+# Local development stack.
+#
+# Usage (from the repo root):
+#   docker compose -f infra/docker-compose.dev.yml up -d
+#
+# Exposes:
+#   - Postgres 16 on localhost:5432 (db: budget_tracker, user/pass: budget/budget)
+#   - The Next.js dev server on localhost:3000 via the `app` service.
+#
+# The `app` service bind-mounts the repo at `/repo` and runs `pnpm dev`
+# against the `@budget-tracker/web` workspace package so edits on the host
+# reload live inside the container.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: budget_tracker
+      POSTGRES_USER: budget
+      POSTGRES_PASSWORD: budget
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U budget -d budget_tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: node:24-alpine
+    working_dir: /repo
+    command: >
+      sh -c "corepack enable
+      && corepack prepare pnpm@10.33.0 --activate
+      && pnpm install
+      && pnpm --filter @budget-tracker/web dev"
+    volumes:
+      - ../:/repo
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://budget:budget@postgres:5432/budget_tracker
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-replace-me-32-bytes-long}
+      BETTER_AUTH_URL: http://localhost:3000
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
