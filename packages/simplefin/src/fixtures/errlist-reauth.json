@@ -1,0 +1,18 @@
+{
+  "errlist": [
+    {
+      "code": "AUTH_EXPIRED",
+      "msg": "Please re-authenticate Chase Bank",
+      "conn_id": "conn_chase_001"
+    }
+  ],
+  "connections": [
+    {
+      "conn_id": "conn_chase_001",
+      "name": "Chase Bank",
+      "org_id": "org_chase",
+      "sfin_url": "https://bridge.simplefin.org/simplefin/accounts"
+    }
+  ],
+  "accounts": []
+}

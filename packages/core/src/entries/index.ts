@@ -62,6 +62,13 @@ export interface ValidateEntryLinesResult {
  *   input should validate the string shape first (see
  *   `AmountSchema` in `../types/index.ts`).
  */
+export {
+  buildEntriesForSimpleFinTransactions,
+  type BuildEntriesInput,
+  type BuiltEntry,
+  type BuildResult,
+} from './build-from-simplefin.ts';
+
 export function validateEntryLines(
   lines: readonly EntryLineInput[],
 ): ValidateEntryLinesResult {
