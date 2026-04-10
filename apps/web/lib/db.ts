@@ -1,30 +1,43 @@
-// Singleton Drizzle client wrapper.
-//
-// We import `createDb` + `schema` from the monorepo `@budget-tracker/db`
-// package, which Instance A builds in the parallel Phase 0b PR. Until that
-// PR merges into `main`, the import below will fail type resolution inside
-// this worktree — that's expected and documented in the Phase 0b Instance B
-// PR body. The `@ts-expect-error` directive is temporary and should be
-// removed in the review pass after Instance A lands.
-//
-// TODO(phase-0b): remove `@ts-expect-error` once `@budget-tracker/db` is
-// published by Instance A.
-// @ts-expect-error pending @budget-tracker/db PR (Phase 0b Instance A)
 import { createDb, schema } from "@budget-tracker/db";
 
-let _db: ReturnType<typeof createDb> | undefined;
+// Singleton Drizzle client wrapper.
+//
+// `createDb` returns `{ db, sql }` — the `db` handle is the Drizzle instance
+// we pass into Better Auth's drizzleAdapter; `sql` is the raw postgres-js
+// client the RLS helper (`withFamilyContext`) uses under the hood. For
+// anything family-scoped, go through `withFamilyContext` from
+// `@budget-tracker/db` rather than calling `getDb()` directly.
+//
+// Build-phase note: `next build` evaluates every route's server module to
+// collect page data, which reaches this file through `lib/auth/server.ts`.
+// We tolerate a missing `DATABASE_URL` during the build phase by falling
+// back to a parked URL. `postgres-js` is lazy — no TCP connection is opened
+// until someone actually runs a query — so passing a dummy URL here only
+// fails at runtime if the *real* deployment forgot to set `DATABASE_URL`,
+// and that failure is caught by the health check in Phase 1, not by a
+// confusing build error here.
+let _conn: ReturnType<typeof createDb> | undefined;
+
+function resolveDatabaseUrl(): string {
+  const url = process.env.DATABASE_URL;
+  if (url) return url;
+
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+  if (isBuildPhase) {
+    // Never actually connected to; see block comment above.
+    return "postgres://build@localhost:5432/build";
+  }
+
+  throw new Error(
+    "DATABASE_URL is not set. Copy .env.example to .env.local and fill in the value.",
+  );
+}
 
 export function getDb() {
-  if (!_db) {
-    const url = process.env.DATABASE_URL;
-    if (!url) {
-      throw new Error(
-        "DATABASE_URL is not set. Copy .env.example to .env.local and fill in the value.",
-      );
-    }
-    _db = createDb(url);
+  if (!_conn) {
+    _conn = createDb(resolveDatabaseUrl());
   }
-  return _db;
+  return _conn.db;
 }
 
 export { schema };
