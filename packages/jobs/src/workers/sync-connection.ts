@@ -1,18 +1,13 @@
-import Decimal from 'decimal.js';
 import { eq } from 'drizzle-orm';
 import { connection } from '@budget-tracker/db/schema';
 import { createDb, withFamilyContext } from '@budget-tracker/db/client';
-import { validateEntryLines } from '@budget-tracker/core/entries';
-// @ts-expect-error pending @budget-tracker/simplefin PR merge
+import { buildEntriesForSimpleFinTransactions } from '@budget-tracker/core/entries';
 import { decryptAccessUrl, fetchAccountSet } from '@budget-tracker/simplefin';
 
 import type { SyncConnectionPayload } from '../job-names.ts';
 import { findAccountBySimpleFinId } from '../ingest/account-lookup.ts';
 import { findOrCreateUncategorized } from '../ingest/category-lookup.ts';
-import {
-  upsertEntriesForSimpleFin,
-  type BuiltEntry,
-} from '../ingest/upsert-entries.ts';
+import { upsertEntriesForSimpleFin } from '../ingest/upsert-entries.ts';
 import { writeSyncRun } from '../ingest/write-sync-run.ts';
 
 export interface SyncConnectionResult {
@@ -47,77 +42,6 @@ function getDb() {
 }
 
 /**
- * Build balanced entry + entry_line pairs from a SimpleFIN transaction.
- *
- * Routes through `@budget-tracker/core/entries/validateEntryLines` to
- * enforce the double-entry invariant before persistence, as required by
- * CLAUDE.md. Uses `decimal.js` for amount negation — never string ops.
- *
- * After Instance A merges, replace this with the real
- * `buildEntriesForSimpleFinTransactions` from `@budget-tracker/core`.
- */
-function buildEntryForTransaction(
-  txn: {
-    id: string;
-    posted: number;
-    amount: string;
-    description: string;
-    pending?: boolean;
-    transacted_at?: number;
-  },
-  opts: {
-    familyId: string;
-    accountId: string;
-    simplefinAccountId: string;
-    uncategorizedCategoryId: string;
-  },
-): BuiltEntry {
-  const amount = new Decimal(txn.amount);
-  const negatedAmount = amount.negated();
-
-  // Pre-validate the double-entry invariant via packages/core/entries/.
-  const validation = validateEntryLines([
-    { amount: amount.toFixed(4) },
-    { amount: negatedAmount.toFixed(4) },
-  ]);
-  if (!validation.ok) {
-    throw new Error(
-      `Double-entry invariant violation: lines sum to ${validation.sum} for txn ${txn.id}`,
-    );
-  }
-
-  // Prefer transacted_at (actual transaction date) over posted (clearing date).
-  const entryDateUnix = txn.transacted_at ?? txn.posted;
-
-  return {
-    entry: {
-      familyId: opts.familyId,
-      entryDate: new Date(entryDateUnix * 1000),
-      entryableType: 'transaction',
-      description: txn.description,
-      source: 'simplefin',
-      isPending: txn.pending ?? false,
-    },
-    dedupKey: {
-      externalId: txn.id,
-      externalAccountId: opts.simplefinAccountId,
-    },
-    lines: [
-      {
-        accountId: opts.accountId,
-        categoryId: null,
-        amount: amount.toFixed(4),
-      },
-      {
-        accountId: null,
-        categoryId: opts.uncategorizedCategoryId,
-        amount: negatedAmount.toFixed(4),
-      },
-    ],
-  };
-}
-
-/**
  * Core sync worker. Pulls transactions from SimpleFIN for a single
  * connection, deduplicates, and upserts entries with balanced
  * double-entry lines.
@@ -147,7 +71,7 @@ export async function syncConnection(
       }
 
       // 2. Decrypt access URL.
-      const accessUrl = decryptAccessUrl(conn.accessUrlEncrypted) as string;
+      const accessUrl = decryptAccessUrl(conn.accessUrlEncrypted);
 
       // 3. Compute trailing window.
       const now = new Date();
@@ -167,27 +91,10 @@ export async function syncConnection(
       }
 
       // 4. Fetch from SimpleFIN.
-      const accountSet = (await fetchAccountSet(accessUrl, {
+      const accountSet = await fetchAccountSet(accessUrl, {
         startDate: windowStart,
         endDate: now,
-      })) as {
-        accounts: Array<{
-          id: string;
-          name: string;
-          balance: string;
-          currency: string;
-          transactions: Array<{
-            id: string;
-            posted: number;
-            amount: string;
-            description: string;
-            pending?: boolean;
-            transacted_at?: number;
-          }>;
-        }>;
-        errors: Array<{ code: string; message: string }>;
-        raw: string;
-      };
+      });
 
       const errlist = accountSet.errors.map(
         (e) => `${e.code}: ${e.message}`,
@@ -199,7 +106,7 @@ export async function syncConnection(
         payload.familyId,
       );
 
-      // 6. Process each account.
+      // 6. Process each account via core's canonical entry builder.
       let totalCreated = 0;
       let totalUpdated = 0;
       let totalSkipped = 0;
@@ -207,7 +114,7 @@ export async function syncConnection(
       for (const sfAccount of accountSet.accounts) {
         const internalAccountId = await findAccountBySimpleFinId(
           tx,
-          sfAccount.id,
+          sfAccount.simplefinId,
         );
 
         if (!internalAccountId) {
@@ -215,15 +122,17 @@ export async function syncConnection(
           continue;
         }
 
-        // Build entries through the core-compatible path.
-        const built: BuiltEntry[] = sfAccount.transactions.map((txn) =>
-          buildEntryForTransaction(txn, {
-            familyId: payload.familyId,
-            accountId: internalAccountId,
-            simplefinAccountId: sfAccount.id,
-            uncategorizedCategoryId: uncategorizedId,
-          }),
-        );
+        // SimpleFIN's parsed types already match core's BuildEntriesInput
+        // shape (Decimal amounts, Date objects, simplefinId field names).
+        const { built, skipped } = buildEntriesForSimpleFinTransactions({
+          transactions: sfAccount.transactions,
+          accountId: internalAccountId,
+          simplefinAccountId: sfAccount.simplefinId,
+          familyId: payload.familyId,
+          uncategorizedCategoryId: uncategorizedId,
+        });
+
+        totalSkipped += skipped.length;
 
         const result = await upsertEntriesForSimpleFin(tx, built);
         totalCreated += result.created;
@@ -231,13 +140,14 @@ export async function syncConnection(
         totalSkipped += result.skipped;
       }
 
-      // 7. Write sync run.
+      // 7. Write sync run. Serialize the parsed account set for the audit log
+      // (the raw HTTP response is not preserved through the parse pipeline).
       const syncRunId = await writeSyncRun(tx, {
         connectionId: payload.connectionId,
         familyId: payload.familyId,
         requestRangeStart: windowStart,
         requestRangeEnd: now,
-        rawResponseJson: accountSet.raw,
+        rawResponseJson: JSON.stringify(accountSet),
         errlist,
         status: errlist.length > 0 ? 'failed' : 'success',
         transactionsCreated: totalCreated,

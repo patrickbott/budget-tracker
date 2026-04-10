@@ -9,12 +9,7 @@ import { getBoss } from "@/lib/boss";
 import { withFamilyContext } from "@budget-tracker/db/client";
 import { connection } from "@budget-tracker/db/schema";
 import { JOB_NAMES } from "@budget-tracker/jobs";
-
-// @budget-tracker/simplefin doesn't exist yet (Instance A creates it).
-// We import it lazily at runtime via a computed module name so the
-// Turbopack bundler doesn't try to resolve it at build time.
-// After Instance A merges and we rebase, replace with a static import.
-const SIMPLEFIN_PKG = ["@budget-tracker", "simplefin"].join("/");
+import { exchangeSetupToken, encryptAccessUrl } from "@budget-tracker/simplefin";
 
 async function getSessionContext() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -33,14 +28,6 @@ export async function exchangeAndStoreConnection(
   try {
     const { familyId, userId } = await getSessionContext();
     const db = getDb();
-
-    // Dynamic import of @budget-tracker/simplefin — package created by Instance A.
-    const { exchangeSetupToken, encryptAccessUrl } = (await import(
-      /* webpackIgnore: true */ SIMPLEFIN_PKG
-    )) as {
-      exchangeSetupToken: (token: string) => Promise<string>;
-      encryptAccessUrl: (url: string) => string;
-    };
 
     const accessUrl = await exchangeSetupToken(setupToken);
     const encrypted = encryptAccessUrl(accessUrl);

@@ -9,11 +9,12 @@
  * merged yet. The mock stubs `decryptAccessUrl` and `fetchAccountSet`.
  */
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
+import Decimal from 'decimal.js';
 import { sql } from 'drizzle-orm';
 import { createDb, withFamilyContext } from '@budget-tracker/db/client';
 import * as schema from '@budget-tracker/db/schema';
 
-// Mock the simplefin package — Instance A hasn't landed it yet.
+// Mock the simplefin package.
 vi.mock('@budget-tracker/simplefin', () => ({
   decryptAccessUrl: vi.fn(() => 'https://test:test@bridge.simplefin.org/simplefin'),
   fetchAccountSet: vi.fn(),
@@ -21,7 +22,6 @@ vi.mock('@budget-tracker/simplefin', () => ({
   exchangeSetupToken: vi.fn(),
 }));
 
-// @ts-expect-error pending @budget-tracker/simplefin PR merge
 import { fetchAccountSet } from '@budget-tracker/simplefin';
 
 import { syncConnection } from './sync-connection.ts';
@@ -137,25 +137,29 @@ function makeMockAccountSet(
     },
   ];
 
-  const result = {
+  return {
+    connections: [],
     accounts: accounts.map((a) => ({
-      id: a.id ?? 'sf_acc_1',
+      simplefinId: a.id ?? 'sf_acc_1',
+      simplefinConnId: 'conn_1',
       name: 'Test Account',
-      balance: '1000.0000',
+      balance: new Decimal(1000),
+      balanceDate: new Date(),
       currency: 'USD',
       transactions: (a.transactions ?? []).map((t) => ({
-        id: t.id ?? 'txn_1',
-        posted: t.posted ?? now,
-        amount: t.amount ?? '-10.0000',
+        simplefinId: t.id ?? 'txn_1',
+        posted: new Date((t.posted ?? now) * 1000),
+        amount: new Decimal(t.amount ?? '-10.0000'),
         description: t.description ?? 'Test Transaction',
         pending: t.pending ?? false,
       })),
     })),
-    errors: overrides.errors ?? [],
-    raw: JSON.stringify({ mock: true }),
+    errors: (overrides.errors ?? []).map((e) => ({
+      code: e.code,
+      message: e.message,
+    })),
+    rateLimited: false,
   };
-
-  return result;
 }
 
 describe('syncConnection', () => {
