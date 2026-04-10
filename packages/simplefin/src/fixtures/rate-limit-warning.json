@@ -1,0 +1,35 @@
+{
+  "errlist": [
+    {
+      "code": "RATE_LIMIT",
+      "msg": "Daily quota approaching"
+    }
+  ],
+  "connections": [
+    {
+      "conn_id": "conn_chase_001",
+      "name": "Chase Bank",
+      "org_id": "org_chase",
+      "sfin_url": "https://bridge.simplefin.org/simplefin/accounts"
+    }
+  ],
+  "accounts": [
+    {
+      "id": "acct_checking_001",
+      "name": "Chase Total Checking",
+      "conn_id": "conn_chase_001",
+      "currency": "USD",
+      "balance": "4523.78",
+      "balance-date": 1712620800,
+      "transactions": [
+        {
+          "id": "txn_rl_001",
+          "posted": 1712534400,
+          "amount": "-25.00",
+          "description": "UBER EATS",
+          "pending": false
+        }
+      ]
+    }
+  ]
+}

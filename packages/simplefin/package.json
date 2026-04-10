@@ -1,0 +1,29 @@
+{
+  "name": "@budget-tracker/simplefin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SimpleFIN Bridge client: setup-token exchange, envelope encryption, account/transaction parser.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "decimal.js": "^10.4.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
