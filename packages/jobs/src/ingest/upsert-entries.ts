@@ -1,36 +1,13 @@
 import { and, eq } from 'drizzle-orm';
 import { entry, entryLine } from '@budget-tracker/db/schema';
 import type { DatabaseTx } from '@budget-tracker/db/client';
+import type { BuiltEntry } from '@budget-tracker/core/entries';
 
-/**
- * Shape matching Instance A's `buildEntriesForSimpleFinTransactions` return.
- *
- * Key structural choices aligned with Instance A:
- * - `dedupKey` is a separate object (not flattened onto `entry`)
- * - `lines` use string amounts matching NUMERIC(19,4)
- *
- * Once Instance A merges, replace this with the real import from
- * `@budget-tracker/core/entries`.
- */
-export interface BuiltEntry {
-  entry: {
-    familyId: string;
-    entryDate: Date;
-    entryableType: 'transaction';
-    description: string;
-    source: 'simplefin';
-    isPending: boolean;
-  };
-  dedupKey: {
-    externalId: string;
-    externalAccountId: string;
-  };
-  lines: Array<{
-    accountId: string | null;
-    categoryId: string | null;
-    amount: string;
-  }>;
-}
+// Re-export so existing consumers (sync-connection.ts) don't break.
+// Core's BuiltEntry includes pre-generated `entryId` / `entry.id` /
+// `lines[].entryId` fields — the upsert intentionally ignores those
+// and lets the DB generate real IDs during INSERT.
+export type { BuiltEntry };
 
 export interface UpsertResult {
   created: number;
