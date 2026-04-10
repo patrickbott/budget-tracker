@@ -1,11 +1,17 @@
 import { defineConfig } from 'vitest/config';
 
+/**
+ * Default vitest config — runs unit tests only.
+ *
+ * Integration tests (*.integration.test.ts) require a running Postgres
+ * and are gated behind `pnpm test:integration` with a separate config.
+ */
 export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
     include: ['src/**/*.test.ts'],
-    // Integration tests hit a real Postgres — allow more time than core's 5s.
-    testTimeout: 30000,
+    exclude: ['src/**/*.integration.test.ts'],
+    testTimeout: 5000,
   },
 });

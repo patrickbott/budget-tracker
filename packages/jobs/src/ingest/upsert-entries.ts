@@ -1,12 +1,16 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { entry, entryLine } from '@budget-tracker/db/schema';
 import type { DatabaseTx } from '@budget-tracker/db/client';
 
 /**
- * Shape that Instance A's `buildEntriesForSimpleFinTransactions` returns.
- * Defined here as a local type so we don't import from `@budget-tracker/core`
- * at the type level (the package doesn't exist in the workspace yet).
- * Once Instance A merges, this can be replaced with the real import.
+ * Shape matching Instance A's `buildEntriesForSimpleFinTransactions` return.
+ *
+ * Key structural choices aligned with Instance A:
+ * - `dedupKey` is a separate object (not flattened onto `entry`)
+ * - `lines` use string amounts matching NUMERIC(19,4)
+ *
+ * Once Instance A merges, replace this with the real import from
+ * `@budget-tracker/core/entries`.
  */
 export interface BuiltEntry {
   entry: {
@@ -16,6 +20,8 @@ export interface BuiltEntry {
     description: string;
     source: 'simplefin';
     isPending: boolean;
+  };
+  dedupKey: {
     externalId: string;
     externalAccountId: string;
   };
@@ -23,7 +29,6 @@ export interface BuiltEntry {
     accountId: string | null;
     categoryId: string | null;
     amount: string;
-    memo: string | null;
   }>;
 }
 
@@ -49,7 +54,6 @@ export interface UpsertResult {
 export async function upsertEntriesForSimpleFin(
   tx: DatabaseTx,
   built: readonly BuiltEntry[],
-  _familyId: string,
 ): Promise<UpsertResult> {
   let created = 0;
   let updated = 0;
@@ -65,14 +69,13 @@ export async function upsertEntriesForSimpleFin(
       .where(
         and(
           eq(entry.source, 'simplefin'),
-          eq(entry.externalAccountId, b.entry.externalAccountId),
-          eq(entry.externalId, b.entry.externalId),
+          eq(entry.externalAccountId, b.dedupKey.externalAccountId),
+          eq(entry.externalId, b.dedupKey.externalId),
         ),
       )
       .limit(1);
 
     if (existing[0]) {
-      // Match found — check pending→posted transition.
       if (existing[0].isPending && !b.entry.isPending) {
         await tx
           .update(entry)
@@ -89,7 +92,6 @@ export async function upsertEntriesForSimpleFin(
       continue;
     }
 
-    // No match — insert new entry + lines.
     const [insertedEntry] = await tx
       .insert(entry)
       .values({
@@ -99,8 +101,8 @@ export async function upsertEntriesForSimpleFin(
         description: b.entry.description,
         source: b.entry.source,
         isPending: b.entry.isPending,
-        externalId: b.entry.externalId,
-        externalAccountId: b.entry.externalAccountId,
+        externalId: b.dedupKey.externalId,
+        externalAccountId: b.dedupKey.externalAccountId,
       })
       .returning({ id: entry.id });
 
@@ -110,7 +112,6 @@ export async function upsertEntriesForSimpleFin(
         accountId: line.accountId,
         categoryId: line.categoryId,
         amount: line.amount,
-        memo: line.memo,
       })),
     );
 

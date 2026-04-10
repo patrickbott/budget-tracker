@@ -15,13 +15,13 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "test:integration:watch": "vitest -c vitest.integration.config.ts"
   },
   "dependencies": {
     "@budget-tracker/core": "workspace:*",
     "@budget-tracker/db": "workspace:*",
-    "@budget-tracker/simplefin": "workspace:*",
     "decimal.js": "^10.4.3",
     "drizzle-orm": "^0.45.2",
     "pg-boss": "^10.1.5",

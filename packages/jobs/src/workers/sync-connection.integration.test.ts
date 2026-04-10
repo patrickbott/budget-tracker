@@ -21,6 +21,7 @@ vi.mock('@budget-tracker/simplefin', () => ({
   exchangeSetupToken: vi.fn(),
 }));
 
+// @ts-expect-error pending @budget-tracker/simplefin PR merge
 import { fetchAccountSet } from '@budget-tracker/simplefin';
 
 import { syncConnection } from './sync-connection.ts';

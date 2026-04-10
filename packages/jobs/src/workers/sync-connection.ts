@@ -1,6 +1,9 @@
+import Decimal from 'decimal.js';
 import { eq } from 'drizzle-orm';
 import { connection } from '@budget-tracker/db/schema';
 import { createDb, withFamilyContext } from '@budget-tracker/db/client';
+import { validateEntryLines } from '@budget-tracker/core/entries';
+// @ts-expect-error pending @budget-tracker/simplefin PR merge
 import { decryptAccessUrl, fetchAccountSet } from '@budget-tracker/simplefin';
 
 import type { SyncConnectionPayload } from '../job-names.ts';
@@ -31,10 +34,6 @@ function getTrailingWindowDays(): number {
   return 7;
 }
 
-/**
- * Resolve a DATABASE_URL for the worker. Worker runs outside Next.js so
- * there's no build-phase fallback — just require the env var.
- */
 function getDatabaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
@@ -45,6 +44,77 @@ let _db: ReturnType<typeof createDb> | undefined;
 function getDb() {
   if (!_db) _db = createDb(getDatabaseUrl());
   return _db.db;
+}
+
+/**
+ * Build balanced entry + entry_line pairs from a SimpleFIN transaction.
+ *
+ * Routes through `@budget-tracker/core/entries/validateEntryLines` to
+ * enforce the double-entry invariant before persistence, as required by
+ * CLAUDE.md. Uses `decimal.js` for amount negation — never string ops.
+ *
+ * After Instance A merges, replace this with the real
+ * `buildEntriesForSimpleFinTransactions` from `@budget-tracker/core`.
+ */
+function buildEntryForTransaction(
+  txn: {
+    id: string;
+    posted: number;
+    amount: string;
+    description: string;
+    pending?: boolean;
+    transacted_at?: number;
+  },
+  opts: {
+    familyId: string;
+    accountId: string;
+    simplefinAccountId: string;
+    uncategorizedCategoryId: string;
+  },
+): BuiltEntry {
+  const amount = new Decimal(txn.amount);
+  const negatedAmount = amount.negated();
+
+  // Pre-validate the double-entry invariant via packages/core/entries/.
+  const validation = validateEntryLines([
+    { amount: amount.toFixed(4) },
+    { amount: negatedAmount.toFixed(4) },
+  ]);
+  if (!validation.ok) {
+    throw new Error(
+      `Double-entry invariant violation: lines sum to ${validation.sum} for txn ${txn.id}`,
+    );
+  }
+
+  // Prefer transacted_at (actual transaction date) over posted (clearing date).
+  const entryDateUnix = txn.transacted_at ?? txn.posted;
+
+  return {
+    entry: {
+      familyId: opts.familyId,
+      entryDate: new Date(entryDateUnix * 1000),
+      entryableType: 'transaction',
+      description: txn.description,
+      source: 'simplefin',
+      isPending: txn.pending ?? false,
+    },
+    dedupKey: {
+      externalId: txn.id,
+      externalAccountId: opts.simplefinAccountId,
+    },
+    lines: [
+      {
+        accountId: opts.accountId,
+        categoryId: null,
+        amount: amount.toFixed(4),
+      },
+      {
+        accountId: null,
+        categoryId: opts.uncategorizedCategoryId,
+        amount: negatedAmount.toFixed(4),
+      },
+    ],
+  };
 }
 
 /**
@@ -88,11 +158,9 @@ export async function syncConnection(
       if (conn.lastSyncedAt) {
         windowStart = new Date(conn.lastSyncedAt.getTime() - trailingMs);
       } else {
-        // First sync: go back 90 days.
         windowStart = new Date(now.getTime() - NINETY_DAYS_MS);
       }
 
-      // Clamp to 90 days max.
       const earliestAllowed = new Date(now.getTime() - NINETY_DAYS_MS);
       if (windowStart < earliestAllowed) {
         windowStart = earliestAllowed;
@@ -143,54 +211,21 @@ export async function syncConnection(
         );
 
         if (!internalAccountId) {
-          // No mapping — skip all transactions for this account.
           totalSkipped += sfAccount.transactions.length;
           continue;
         }
 
-        // Build entry + line pairs for each transaction.
-        const built: BuiltEntry[] = sfAccount.transactions.map((txn) => {
-          const isNegative = txn.amount.startsWith('-');
-          const absAmount = isNegative
-            ? txn.amount.slice(1)
-            : txn.amount;
-
-          return {
-            entry: {
-              familyId: payload.familyId,
-              entryDate: new Date(txn.posted * 1000),
-              entryableType: 'transaction' as const,
-              description: txn.description,
-              source: 'simplefin' as const,
-              isPending: txn.pending ?? false,
-              externalId: txn.id,
-              externalAccountId: sfAccount.id,
-            },
-            lines: [
-              {
-                // Asset/liability side: money enters or leaves the account.
-                // SimpleFIN: negative = debit (money left the account).
-                accountId: internalAccountId,
-                categoryId: null,
-                amount: txn.amount,
-                memo: null,
-              },
-              {
-                // Category side: opposite sign.
-                accountId: null,
-                categoryId: uncategorizedId,
-                amount: isNegative ? absAmount : `-${txn.amount}`,
-                memo: null,
-              },
-            ],
-          };
-        });
-
-        const result = await upsertEntriesForSimpleFin(
-          tx,
-          built,
-          payload.familyId,
+        // Build entries through the core-compatible path.
+        const built: BuiltEntry[] = sfAccount.transactions.map((txn) =>
+          buildEntryForTransaction(txn, {
+            familyId: payload.familyId,
+            accountId: internalAccountId,
+            simplefinAccountId: sfAccount.id,
+            uncategorizedCategoryId: uncategorizedId,
+          }),
         );
+
+        const result = await upsertEntriesForSimpleFin(tx, built);
         totalCreated += result.created;
         totalUpdated += result.updated;
         totalSkipped += result.skipped;
