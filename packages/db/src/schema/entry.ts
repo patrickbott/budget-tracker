@@ -55,6 +55,15 @@ export const entry = pgTable(
     /** `true` when SimpleFIN marks the transaction pending. Auto-flips to
      *  false on the next sync that sees a matching posted transaction. */
     isPending: boolean('is_pending').notNull().default(false),
+    /** Opaque SimpleFIN transaction id. Unique only within its parent
+     *  SimpleFIN account — the dedup key is (source, external_account_id,
+     *  external_id). See docs/simplefin-notes.md §2. */
+    externalId: text('external_id'),
+    /** The SimpleFIN account id this entry was pulled from. Stored on the
+     *  entry row (not resolved via account.simplefin_account_id) because
+     *  re-linking changes the account mapping but historical entries keep
+     *  their original external ids. See docs/simplefin-notes.md §3. */
+    externalAccountId: text('external_account_id'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Flag,
   LayoutDashboard,
+  Link2,
   List,
   MessageSquare,
   Receipt,
@@ -28,6 +29,7 @@ type NavItem = {
 const navItems: readonly NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/accounts", label: "Accounts", icon: Wallet },
+  { href: "/connections", label: "Connections", icon: Link2 },
   { href: "/transactions", label: "Transactions", icon: Receipt },
   { href: "/categories", label: "Categories", icon: Tags },
   { href: "/budgets", label: "Budgets", icon: Target },
