@@ -1,31 +1,133 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { desc, eq, sql } from "drizzle-orm";
+import Decimal from "decimal.js";
 
-const cards = [
-  { title: "Net worth", body: "Phase 1 — coming soon" },
-  { title: "Cashflow (30 days)", body: "Phase 1 — coming soon" },
-  { title: "Recent transactions", body: "Phase 1 — coming soon" },
-] as const;
+import { auth } from "@/lib/auth/server";
+import { getDb } from "@/lib/db";
+import { withFamilyContext } from "@budget-tracker/db/client";
+import { account, entry, entryLine, category } from "@budget-tracker/db/schema";
 
-export default function DashboardPage() {
+import { NetWorthCard } from "./_components/net-worth-card";
+import { AccountListWidget } from "./_components/account-list-widget";
+import { CashflowChart } from "./_components/cashflow-chart";
+import { RecentTransactions } from "./_components/recent-transactions";
+
+export default async function DashboardPage() {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) redirect("/login");
+
+  const familyId = session.session.activeOrganizationId;
+  if (!familyId) redirect("/onboarding");
+
+  const db = getDb();
+
+  const { accounts, recentEntries, cashflowData } = await withFamilyContext(
+    db,
+    familyId,
+    session.user.id,
+    async (tx) => {
+      // Fetch all accounts
+      const accts = await tx.select().from(account);
+
+      // Recent 10 entries with their account-side line + category
+      const recent = await tx
+        .select({
+          id: entry.id,
+          entryDate: entry.entryDate,
+          description: entry.description,
+          amount: entryLine.amount,
+          categoryName: category.name,
+          categoryColor: category.color,
+        })
+        .from(entry)
+        .innerJoin(entryLine, eq(entryLine.entryId, entry.id))
+        .leftJoin(category, eq(entryLine.categoryId, category.id))
+        .where(sql`${entryLine.accountId} IS NOT NULL`)
+        .orderBy(desc(entry.entryDate), desc(entry.createdAt))
+        .limit(10);
+
+      // Cashflow: monthly income vs expenses for the last 6 months.
+      // Simplified v1: sum positive account-side amounts as income,
+      // negative as expenses, grouped by month.
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      sixMonthsAgo.setDate(1);
+
+      const monthlyRaw = await tx
+        .select({
+          month: sql<string>`to_char(${entry.entryDate}, 'YYYY-MM')`,
+          amount: entryLine.amount,
+        })
+        .from(entry)
+        .innerJoin(entryLine, eq(entryLine.entryId, entry.id))
+        .where(
+          sql`${entryLine.accountId} IS NOT NULL AND ${entry.entryDate} >= ${sixMonthsAgo.toISOString().split("T")[0]}`,
+        );
+
+      // Aggregate in TypeScript with decimal.js (safe)
+      const monthlyMap = new Map<
+        string,
+        { income: Decimal; expenses: Decimal }
+      >();
+
+      for (const row of monthlyRaw) {
+        const m = row.month;
+        if (!monthlyMap.has(m)) {
+          monthlyMap.set(m, {
+            income: new Decimal(0),
+            expenses: new Decimal(0),
+          });
+        }
+        const bucket = monthlyMap.get(m)!;
+        const amt = new Decimal(row.amount);
+        if (amt.isPositive()) {
+          bucket.income = bucket.income.plus(amt);
+        } else {
+          bucket.expenses = bucket.expenses.plus(amt.abs());
+        }
+      }
+
+      // Sort by month and format
+      const cashflow = Array.from(monthlyMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([m, data]) => {
+          const [year, month] = m.split("-");
+          const label = new Date(
+            Number(year),
+            Number(month) - 1,
+          ).toLocaleString("en-US", { month: "short" });
+          return {
+            month: label,
+            income: data.income.toFixed(2),
+            expenses: data.expenses.toFixed(2),
+          };
+        });
+
+      return {
+        accounts: accts,
+        recentEntries: recent,
+        cashflowData: cashflow,
+      };
+    },
+  );
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-      <div className="grid gap-4 md:grid-cols-3">
-        {cards.map((card) => (
-          <Card key={card.title}>
-            <CardHeader>
-              <CardTitle>{card.title}</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              {card.body}
-            </CardContent>
-          </Card>
-        ))}
+      <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Left column */}
+        <div className="space-y-6">
+          <NetWorthCard accounts={accounts} />
+          <AccountListWidget accounts={accounts} />
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-6">
+          <CashflowChart data={cashflowData} />
+          <RecentTransactions entries={recentEntries} />
+        </div>
       </div>
     </div>
   );
