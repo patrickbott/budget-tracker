@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm';
-import { connection } from '@budget-tracker/db/schema';
+import { account, connection } from '@budget-tracker/db/schema';
 import { createDb, withFamilyContext } from '@budget-tracker/db/client';
 import { buildEntriesForSimpleFinTransactions } from '@budget-tracker/core/entries';
 import { decryptAccessUrl, fetchAccountSet } from '@budget-tracker/simplefin';
 
 import type { SyncConnectionPayload } from '../job-names.ts';
-import { findAccountBySimpleFinId } from '../ingest/account-lookup.ts';
+import { findOrCreateAccountBySimpleFinId } from '../ingest/account-lookup.ts';
 import { findOrCreateUncategorized } from '../ingest/category-lookup.ts';
 import { upsertEntriesForSimpleFin } from '../ingest/upsert-entries.ts';
 import { writeSyncRun } from '../ingest/write-sync-run.ts';
@@ -112,15 +112,17 @@ export async function syncConnection(
       let totalSkipped = 0;
 
       for (const sfAccount of accountSet.accounts) {
-        const internalAccountId = await findAccountBySimpleFinId(
-          tx,
-          sfAccount.simplefinId,
-        );
-
-        if (!internalAccountId) {
-          totalSkipped += sfAccount.transactions.length;
-          continue;
-        }
+        // Auto-create account if this is a new SimpleFIN account we
+        // haven't seen before.
+        const internalAccountId = await findOrCreateAccountBySimpleFinId(tx, {
+          simplefinId: sfAccount.simplefinId,
+          name: sfAccount.name,
+          currency: sfAccount.currency,
+          balance: sfAccount.balance,
+          balanceDate: sfAccount.balanceDate,
+          familyId: payload.familyId,
+          connectionId: payload.connectionId,
+        });
 
         // SimpleFIN's parsed types already match core's BuildEntriesInput
         // shape (Decimal amounts, Date objects, simplefinId field names).
@@ -138,6 +140,30 @@ export async function syncConnection(
         totalCreated += result.created;
         totalUpdated += result.updated;
         totalSkipped += result.skipped;
+
+        // Update account balance from SimpleFIN snapshot. Only update if
+        // the SimpleFIN balance date is newer than what we have stored
+        // (or if we have no stored date yet).
+        const [currentAccount] = await tx
+          .select({ balanceAsOf: account.balanceAsOf })
+          .from(account)
+          .where(eq(account.id, internalAccountId))
+          .limit(1);
+
+        const shouldUpdate =
+          !currentAccount?.balanceAsOf ||
+          sfAccount.balanceDate > currentAccount.balanceAsOf;
+
+        if (shouldUpdate) {
+          await tx
+            .update(account)
+            .set({
+              balance: sfAccount.balance.toFixed(4),
+              balanceAsOf: sfAccount.balanceDate,
+              updatedAt: now,
+            })
+            .where(eq(account.id, internalAccountId));
+        }
       }
 
       // 7. Write sync run. Serialize the parsed account set for the audit log

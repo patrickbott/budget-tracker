@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./boss": {
+      "types": "./src/boss.ts",
+      "import": "./src/boss.ts"
     }
   },
   "files": [

@@ -1,4 +1,5 @@
 import PgBoss from "pg-boss";
+import { registerJobs, registerSchedules } from "@budget-tracker/jobs/boss";
 
 // Lazy singleton pg-boss instance.
 //
@@ -31,6 +32,8 @@ export async function getBoss(): Promise<PgBoss> {
   }
   if (!_started) {
     await _boss.start();
+    registerJobs(_boss);
+    await registerSchedules(_boss);
     _started = true;
   }
   return _boss;
