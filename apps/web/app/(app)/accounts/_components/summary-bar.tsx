@@ -1,14 +1,7 @@
 import Decimal from "decimal.js";
 import { Card, CardContent } from "@/components/ui/card";
-
-const ASSET_TYPES = new Set([
-  "depository",
-  "investment",
-  "property",
-  "crypto",
-  "other_asset",
-]);
-const LIABILITY_TYPES = new Set(["credit_card", "loan", "other_liability"]);
+import { formatCurrency } from "@/lib/format";
+import { ASSET_TYPES, LIABILITY_TYPES } from "@/lib/account-types";
 
 interface SummaryBarProps {
   accounts: Array<{
@@ -16,15 +9,6 @@ interface SummaryBarProps {
     balance: string;
     isClosed: boolean;
   }>;
-}
-
-function formatUsd(d: Decimal): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(d.toNumber());
 }
 
 export function SummaryBar({ accounts }: SummaryBarProps) {
@@ -35,9 +19,9 @@ export function SummaryBar({ accounts }: SummaryBarProps) {
 
   for (const a of open) {
     const bal = new Decimal(a.balance);
-    if (ASSET_TYPES.has(a.accountType)) {
+    if (ASSET_TYPES.has(a.accountType as never)) {
       assets = assets.plus(bal);
-    } else if (LIABILITY_TYPES.has(a.accountType)) {
+    } else if (LIABILITY_TYPES.has(a.accountType as never)) {
       liabilities = liabilities.plus(bal);
     }
   }
@@ -50,7 +34,7 @@ export function SummaryBar({ accounts }: SummaryBarProps) {
         <CardContent className="py-4">
           <p className="text-sm text-muted-foreground">Total Assets</p>
           <p className="text-xl font-semibold text-green-600 tabular-nums">
-            {formatUsd(assets)}
+            {formatCurrency(assets.toFixed(2))}
           </p>
         </CardContent>
       </Card>
@@ -58,7 +42,7 @@ export function SummaryBar({ accounts }: SummaryBarProps) {
         <CardContent className="py-4">
           <p className="text-sm text-muted-foreground">Total Liabilities</p>
           <p className="text-xl font-semibold text-red-500 tabular-nums">
-            {formatUsd(liabilities)}
+            {formatCurrency(liabilities.toFixed(2))}
           </p>
         </CardContent>
       </Card>
@@ -70,7 +54,7 @@ export function SummaryBar({ accounts }: SummaryBarProps) {
               netWorth.isNegative() ? "text-red-500" : "text-green-600"
             }`}
           >
-            {formatUsd(netWorth)}
+            {formatCurrency(netWorth.toFixed(2))}
           </p>
         </CardContent>
       </Card>

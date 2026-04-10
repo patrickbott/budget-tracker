@@ -1,7 +1,5 @@
 # Deployment
 
-> **Status:** Stub — fills in during Phase 0b (Docker Compose + CI) and hardens at Phase 1 deploy. This file describes the target deploy story; the scripts/playbooks referenced land incrementally.
-
 ## Target topology (VPS)
 
 ```
@@ -42,108 +40,261 @@
                               ▲
                               │
                          Your domain
-                   (e.g. budget.example.com)
+                   (TBD — decision pending)
 ```
 
 ## Initial VPS provisioning
 
-_Playbook lives at `infra/vps-setup.md` from Phase 0b onward. Summary of what that file will contain:_
+### 1. Create the VPS
 
-1. Spin up Hetzner CX22 (or CAX11 for ARM) in Ashburn, Virginia (or whichever region is closest)
-2. Add your SSH public key during provisioning; receive root password via email (immediately change/disable)
-3. SSH in, run the hardening script:
-   - Update packages: `apt update && apt -y upgrade`
-   - Create a non-root user, add to sudo, copy SSH key
-   - Disable root SSH + password auth
-   - Install `ufw`, `fail2ban`, `unattended-upgrades`
-   - Open ports 22, 80, 443
-   - Install Docker + Docker Compose v2
-   - (Optional) Install Tailscale, run `tailscale up --ssh` for private admin access
-4. Point your domain at the VPS IP via Cloudflare DNS (A record, proxied)
-5. Copy the repo to `/opt/budget-tracker` via `git clone` (use a deploy key if the repo is private)
-6. Create `/opt/budget-tracker/.env` with production values (use `openssl rand -base64 32` for all secrets)
-7. `docker compose -f infra/docker-compose.prod.yml up -d`
-8. Verify: `curl https://<your-domain>/api/health` should return 200
+- Go to [Hetzner Cloud Console](https://console.hetzner.cloud/)
+- Create a new server:
+  - **Location:** Ashburn, VA (us-east) for lowest US latency
+  - **Image:** Ubuntu 24.04 LTS
+  - **Type:** CX22 (2 vCPU / 4 GB RAM / 40 GB SSD, ~$4.50/mo) or CAX11 (ARM, ~$3.50/mo)
+  - **SSH key:** add your public key during creation
+- Note the assigned IP address
+
+### 2. Harden the server
+
+SSH in as root and run:
+
+```bash
+# Update system
+apt update && apt -y upgrade
+
+# Create non-root deploy user
+adduser --disabled-password --gecos "" deploy
+usermod -aG sudo deploy
+
+# Copy SSH key to the deploy user
+mkdir -p /home/deploy/.ssh
+cp ~/.ssh/authorized_keys /home/deploy/.ssh/
+chown -R deploy:deploy /home/deploy/.ssh
+chmod 700 /home/deploy/.ssh
+chmod 600 /home/deploy/.ssh/authorized_keys
+
+# Allow passwordless sudo for deploy (for Docker commands)
+echo "deploy ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/deploy
+
+# Disable root SSH login and password auth
+sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl restart sshd
+
+# Install firewall
+apt install -y ufw
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp    # SSH
+ufw allow 80/tcp    # HTTP (Caddy redirect)
+ufw allow 443/tcp   # HTTPS
+ufw allow 443/udp   # HTTP/3 (QUIC)
+ufw --force enable
+
+# Install fail2ban
+apt install -y fail2ban
+systemctl enable fail2ban
+systemctl start fail2ban
+
+# Enable unattended security updates
+apt install -y unattended-upgrades
+dpkg-reconfigure -plow unattended-upgrades
+
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+usermod -aG docker deploy
+
+# (Optional) Install Tailscale for private admin access
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up --ssh
+```
+
+Log out of root. From now on, SSH in as `deploy`.
+
+### 3. Set up DNS
+
+- In Cloudflare (or your DNS provider), create an **A record** pointing your domain to the VPS IP
+- If using Cloudflare, enable **Proxy** (orange cloud) for DDoS protection
+- **Note:** If Cloudflare proxy is enabled, set SSL mode to **Full (Strict)** so Caddy's cert is validated
+
+### 4. Clone and configure
+
+```bash
+# As the deploy user
+sudo mkdir -p /opt/budget-tracker
+sudo chown deploy:deploy /opt/budget-tracker
+
+# Clone (use a deploy key if private repo)
+git clone https://github.com/<your-user>/budget-tracker.git /opt/budget-tracker
+cd /opt/budget-tracker
+
+# Create the production .env file
+cat > .env << 'ENVEOF'
+# Domain (Caddy uses this for auto-TLS)
+APP_DOMAIN=budget.example.com
+
+# Postgres
+POSTGRES_DB=budget_tracker
+POSTGRES_USER=budget
+POSTGRES_PASSWORD=<generate: openssl rand -base64 32>
+DATABASE_URL=postgresql://budget:<same-password>@postgres:5432/budget_tracker
+
+# Auth
+BETTER_AUTH_SECRET=<generate: openssl rand -base64 32>
+
+# AI
+ANTHROPIC_API_KEY=<your-key>
+
+# SimpleFIN connection encryption
+ENCRYPTION_MASTER_KEY=<generate: openssl rand -base64 32>
+ENVEOF
+
+# Lock down the .env file
+chmod 600 .env
+```
+
+### 5. First deploy
+
+```bash
+# Run the deploy script with --first-run to include migrations
+./scripts/deploy.sh --first-run
+
+# Or manually:
+docker compose -f infra/docker-compose.prod.yml up -d --build
+
+# Verify
+curl -sf https://<your-domain>/api/health
+```
+
+## Deploy script
+
+Subsequent deploys use `scripts/deploy.sh`:
+
+```bash
+# From your local machine
+VPS_HOST=<vps-ip> ./scripts/deploy.sh
+```
+
+The script:
+1. SSHs into the VPS
+2. Pulls latest code from `main`
+3. Rebuilds and restarts Docker containers
+4. Runs a health check
+
+Use `--first-run` on the initial deploy to also run database migrations.
+
+See `scripts/deploy.sh` for all configurable environment variables.
 
 ## Caddy configuration
 
-`infra/Caddyfile`:
+The Caddyfile at `infra/Caddyfile` uses the `$APP_DOMAIN` environment variable (injected by docker-compose.prod.yml). Caddy automatically:
+- Issues a Let's Encrypt TLS certificate
+- Renews it before expiry
+- Redirects HTTP to HTTPS
+- Adds security headers (HSTS, X-Frame-Options, etc.)
 
-```
-{
-  email admin@example.com
-}
-
-budget.example.com {
-  reverse_proxy web:3000
-  encode gzip zstd
-  header {
-    Strict-Transport-Security "max-age=31536000; includeSubDomains"
-    X-Frame-Options "DENY"
-    X-Content-Type-Options "nosniff"
-    Referrer-Policy "strict-origin-when-cross-origin"
-  }
-}
-```
-
-Caddy automatically issues and renews Let's Encrypt certs. No manual cert management.
+No manual certificate management required.
 
 ## Backups
 
-Nightly cron (in `infra/backup/backup.sh`):
+Nightly encrypted backups via `scripts/backup.sh`:
 
-1. `pg_dump` the budget_tracker database
-2. Encrypt the dump with `age -r <recipient>` using a public key (private key lives offline, not on the VPS)
-3. Upload to a Backblaze B2 bucket via `b2` CLI
-4. Prune backups older than `BACKUP_RETENTION_DAYS` (default 30)
-5. Ping `HEALTHCHECKS_SYNC_PING_URL` on success
+1. `pg_dump` pipes directly through `age` encryption — no unencrypted data touches disk
+2. Encrypted dump stored locally in `/opt/budget-tracker/backups/`
+3. Optionally uploaded to a Backblaze B2 bucket
+4. Local backups older than `BACKUP_RETENTION_DAYS` (default 30) are pruned
+5. Pings Healthchecks.io on success (if configured)
 
-B2 pricing at current rates (2026): storing ~1 GB of backups costs less than $0.01/month.
+### Setting up backups
 
-**Restore procedure** (should be tested quarterly):
+```bash
+# Install age for encryption
+apt install -y age
 
-1. Download the most recent encrypted dump from B2
-2. Decrypt with the offline private key
-3. `psql budget_tracker < dump.sql` against a freshly-created database
-4. Spin up the app against the restored DB, verify a recent transaction
-5. Document the result in `docs/deployment.md` under "Restore test log"
+# Generate an age keypair (do this on your LOCAL machine, not the VPS)
+age-keygen -o budget-backup.key
+# Save the public key (starts with age1...) — this goes on the VPS
+# Save the private key file OFFLINE — this is your recovery key
 
-## CI/CD
+# Install B2 CLI (optional, for remote backups)
+pip install b2
 
-`.github/workflows/ci.yml` (Phase 0b):
-- On every push: `pnpm install`, `pnpm lint`, `pnpm typecheck`, `pnpm test`
-- On PRs to main: also run `pnpm build`
-- No automatic deploy — production deploys are manual (`git pull && docker compose build && docker compose up -d` on the VPS)
+# Add the backup cron job on the VPS
+crontab -e
+# Add this line:
+# 0 3 * * * cd /opt/budget-tracker && source .env && AGE_RECIPIENT=age1... POSTGRES_DB=budget_tracker POSTGRES_USER=budget ./scripts/backup.sh >> /var/log/budget-backup.log 2>&1
+```
 
-## Secrets management
+### Restore procedure
 
-- **Local dev:** `.env.local` at repo root, gitignored
-- **Production VPS:** `.env` in `/opt/budget-tracker/`, permissions `600`, owned by the deploy user
-- **CI:** no production secrets in CI. CI only runs tests against a disposable Postgres, not the real DB
-- **Rotation:** `BETTER_AUTH_SECRET` and `ENCRYPTION_MASTER_KEY` should be rotated if compromised. Rotating `ENCRYPTION_MASTER_KEY` requires re-encrypting every `connection.access_url_encrypted` row — there's a rotation script at `scripts/rotate-encryption-key.sh` (Phase 1+)
+```bash
+# 1. Download the encrypted dump (from B2 or local backup)
+b2 download-file-by-name <bucket> backups/budget_tracker-20260410-030000.sql.age ./restore.sql.age
+
+# 2. Decrypt with your offline private key
+age -d -i budget-backup.key restore.sql.age > restore.sql
+
+# 3. Restore into a fresh database
+docker compose -f infra/docker-compose.prod.yml exec -T postgres \
+  psql -U budget -d budget_tracker < restore.sql
+
+# 4. Restart the app and verify
+docker compose -f infra/docker-compose.prod.yml restart app
+curl -sf https://<your-domain>/api/health
+```
+
+B2 pricing (2026): storing ~1 GB of backups costs less than $0.01/month.
 
 ## Monitoring
 
-| Signal | Tool | Notes |
+| Signal | Tool | Setup |
 |---|---|---|
-| App health | Healthchecks.io (free) | Pinged by daily sync job; alerts if missed |
-| HTTP uptime | UptimeRobot (free) | Polls `/api/health` every 5 min |
-| Error reporting | Sentry (optional, Phase 4+) | Free tier: 5k errors/mo |
-| Log retention | Docker's default json-file, rotated by Docker | Keep 3 days, 100MB max. For more, ship to Loki on the same VPS (Phase 5) |
-| Resource usage | `docker stats`, `htop` on the VPS | Manual for now; revisit if the VPS gets tight |
+| App health | [Healthchecks.io](https://healthchecks.io) (free) | Create a check, set the period to 24h. The daily sync job and backup script ping it on success. Alerts if missed. |
+| HTTP uptime | [UptimeRobot](https://uptimerobot.com) (free) | Create an HTTP(s) monitor for `https://<domain>/api/health`, check every 5 min. |
+| Log retention | Docker json-file driver | Default Docker log driver. Configure rotation in `/etc/docker/daemon.json`: `{"log-opts": {"max-size": "100m", "max-file": "3"}}` |
+| Resource usage | `docker stats`, `htop` | Manual for now. Revisit if the VPS gets tight. |
+
+### Setting up Healthchecks.io
+
+1. Create a free account at healthchecks.io
+2. Create a new check with a 24-hour period and 1-hour grace
+3. Copy the ping URL
+4. Set it as `HEALTHCHECKS_PING_URL` in your backup cron and sync job config
+
+## CI/CD
+
+`.github/workflows/ci.yml`:
+- On every push: `pnpm install`, `pnpm lint`, `pnpm typecheck`, `pnpm test`
+- On PRs to main: also runs `pnpm build`
+- No automatic deploy — production deploys are manual via `scripts/deploy.sh`
+
+## Secrets management
+
+| Context | Location | Notes |
+|---|---|---|
+| Local dev | `.env.local` at repo root | Gitignored |
+| Production | `/opt/budget-tracker/.env` on VPS | Permissions `600`, owned by deploy user |
+| CI | None | CI runs tests against a disposable Postgres, no prod secrets |
+
+**Rotation:**
+- `BETTER_AUTH_SECRET` — rotate freely; existing sessions will be invalidated
+- `ENCRYPTION_MASTER_KEY` — rotating requires re-encrypting every `connection.access_url_encrypted` row. Use `scripts/rotate-encryption-key.sh` (Phase 1+)
 
 ## Upgrade / deploy loop
 
 ```bash
-# On the VPS
+# From your local machine:
+VPS_HOST=<ip> ./scripts/deploy.sh
+
+# Or manually on the VPS:
 cd /opt/budget-tracker
 git pull origin main
-docker compose -f infra/docker-compose.prod.yml pull  # if using pre-built images
 docker compose -f infra/docker-compose.prod.yml up -d --build
 docker compose -f infra/docker-compose.prod.yml logs --tail=100 -f
 ```
 
-**Database migrations** run automatically on container startup via an `entrypoint.sh` that calls `pnpm db:migrate` before `next start`.
+**Database migrations** run automatically on container startup via the Drizzle migrate step in the app's startup sequence.
 
 ## Rollback
 
@@ -165,6 +316,13 @@ For migration rollbacks: Drizzle doesn't have automatic down migrations. If a mi
 - [ ] Signup works end-to-end (create a test family)
 - [ ] `docker compose logs` shows no errors in the last 5 minutes
 - [ ] `docker exec -it postgres psql -U budget -d budget_tracker -c '\dt'` shows the expected tables
-- [ ] `docker exec -it postgres psql -U budget -d budget_tracker -c 'SELECT COUNT(*) FROM family'` returns a reasonable number
 - [ ] Nightly backup job has run at least once successfully (check Healthchecks.io)
 - [ ] Caddy has issued a valid Let's Encrypt cert (check `docker compose logs caddy`)
+
+## Restore test log
+
+_Record quarterly restore test results here:_
+
+| Date | Backup file | Result | Notes |
+|---|---|---|---|
+| — | — | — | No tests yet |

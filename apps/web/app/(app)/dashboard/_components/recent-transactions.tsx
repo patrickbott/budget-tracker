@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Decimal from "decimal.js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCurrency } from "@/lib/format";
 
 interface RecentTransactionsProps {
   entries: Array<{
@@ -12,16 +13,6 @@ interface RecentTransactionsProps {
     categoryName: string | null;
     categoryColor: string | null;
   }>;
-}
-
-function formatCurrency(amount: string): string {
-  const d = new Decimal(amount);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(d.toNumber());
 }
 
 function formatDate(date: Date): string {

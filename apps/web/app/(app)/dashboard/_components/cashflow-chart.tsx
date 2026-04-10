@@ -11,6 +11,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCurrency, formatCompact } from "@/lib/format";
 
 interface CashflowChartProps {
   /**
@@ -58,22 +59,11 @@ export function CashflowChart({ data }: CashflowChartProps) {
             <XAxis dataKey="month" className="text-xs" />
             <YAxis
               className="text-xs"
-              tickFormatter={(v: number) =>
-                new Intl.NumberFormat("en-US", {
-                  style: "currency",
-                  currency: "USD",
-                  notation: "compact",
-                  maximumFractionDigits: 0,
-                }).format(v)
-              }
+              tickFormatter={(v: number) => formatCompact(v)}
             />
             <Tooltip
               formatter={(value, name) => [
-                new Intl.NumberFormat("en-US", {
-                  style: "currency",
-                  currency: "USD",
-                  minimumFractionDigits: 2,
-                }).format(Number(value)),
+                formatCurrency(Number(value)),
                 name === "income" ? "Income" : "Expenses",
               ]}
             />

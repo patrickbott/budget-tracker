@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 
 import { updateEntryLineCategory } from "../actions";
+import { formatCurrency } from "@/lib/format";
 
 export interface TransactionRow {
   entryId: string;
@@ -63,11 +64,6 @@ interface TransactionTableProps {
   accounts: { id: string; name: string }[];
   /** Pre-filter to a single account (used on account detail page) */
   filterAccountId?: string;
-}
-
-function formatCurrency(amount: string): string {
-  const d = new Decimal(amount);
-  return d.toFixed(2);
 }
 
 function formatDate(dateStr: string): string {

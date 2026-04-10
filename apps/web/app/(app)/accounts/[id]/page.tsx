@@ -6,6 +6,8 @@ import { eq, and, desc } from "drizzle-orm";
 
 import { auth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
+import { formatCurrency } from "@/lib/format";
+import { ACCOUNT_TYPE_LABELS } from "@/lib/account-types";
 import { withFamilyContext } from "@budget-tracker/db/client";
 import {
   account,
@@ -32,24 +34,6 @@ interface AccountDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
-function formatCurrency(amount: string): string {
-  const d = new Decimal(amount);
-  return d.toNumber().toLocaleString(undefined, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  });
-}
-
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  depository: "Depository",
-  credit_card: "Credit Card",
-  investment: "Investment",
-  loan: "Loan",
-  property: "Property",
-  crypto: "Crypto",
-  other: "Other",
-};
 
 export default async function AccountDetailPage({
   params,
