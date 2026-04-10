@@ -202,6 +202,25 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.17)(lightningcss@1.32.0)(msw@2.13.2(@types/node@22.19.17)(typescript@5.9.3))
 
+  packages/simplefin:
+    dependencies:
+      decimal.js:
+        specifier: ^10.4.3
+        version: 10.6.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.19.17
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.17)(lightningcss@1.32.0)(msw@2.13.2(@types/node@22.19.17)(typescript@5.9.3))
+
 packages:
 
   '@alloc/quick-lru@5.2.0':
