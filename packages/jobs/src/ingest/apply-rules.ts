@@ -43,8 +43,9 @@ import {
 } from '@budget-tracker/core/rules';
 
 export interface ApplyRulesResult {
+  /** Number of entries whose category-side `entry_line` was rewritten
+   *  because at least one rule's `set_category` action fired. */
   entriesUpdated: number;
-  rulesMatched: number;
 }
 
 /**
@@ -69,7 +70,7 @@ export async function applyRulesToEntries(
   familyId: string,
   entryIds: readonly string[],
 ): Promise<ApplyRulesResult> {
-  if (entryIds.length === 0) return { entriesUpdated: 0, rulesMatched: 0 };
+  if (entryIds.length === 0) return { entriesUpdated: 0 };
 
   const dbRules = await tx
     .select({
@@ -82,7 +83,7 @@ export async function applyRulesToEntries(
     .from(rule)
     .where(and(eq(rule.familyId, familyId), eq(rule.enabled, true)));
 
-  if (dbRules.length === 0) return { entriesUpdated: 0, rulesMatched: 0 };
+  if (dbRules.length === 0) return { entriesUpdated: 0 };
 
   const runnableRules: RunnableRule[] = dbRules.map((r) => ({
     ruleId: r.id,
@@ -110,7 +111,7 @@ export async function applyRulesToEntries(
     .where(inArray(entry.id, [...entryIds]));
 
   if (accountSideRows.length === 0) {
-    return { entriesUpdated: 0, rulesMatched: 0 };
+    return { entriesUpdated: 0 };
   }
 
   const evaluable: RuleEvaluableEntry[] = [];
@@ -130,13 +131,10 @@ export async function applyRulesToEntries(
   const results = runRules(runnableRules, evaluable);
 
   let entriesUpdated = 0;
-  let rulesMatched = 0;
 
   for (let i = 0; i < results.length; i++) {
     const result = results[i]!;
     if (result.categoryId === null) continue;
-
-    rulesMatched++;
 
     await tx
       .update(entryLine)
@@ -151,5 +149,5 @@ export async function applyRulesToEntries(
     entriesUpdated++;
   }
 
-  return { entriesUpdated, rulesMatched };
+  return { entriesUpdated };
 }

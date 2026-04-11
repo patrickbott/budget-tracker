@@ -104,7 +104,7 @@ describe('applyRulesToEntries', () => {
 
     const result = await applyRulesToEntries(tx, 'family-1', []);
 
-    expect(result).toEqual({ entriesUpdated: 0, rulesMatched: 0 });
+    expect(result).toEqual({ entriesUpdated: 0 });
     expect(mocks.selectFn).not.toHaveBeenCalled();
   });
 
@@ -114,7 +114,7 @@ describe('applyRulesToEntries', () => {
 
     const result = await applyRulesToEntries(tx, 'family-1', ['entry-1']);
 
-    expect(result).toEqual({ entriesUpdated: 0, rulesMatched: 0 });
+    expect(result).toEqual({ entriesUpdated: 0 });
     expect(mocks.updateFn).not.toHaveBeenCalled();
   });
 
@@ -137,7 +137,7 @@ describe('applyRulesToEntries', () => {
 
     const result = await applyRulesToEntries(tx, 'family-1', ['entry-1']);
 
-    expect(result).toEqual({ entriesUpdated: 0, rulesMatched: 0 });
+    expect(result).toEqual({ entriesUpdated: 0 });
     expect(mocks.updateFn).not.toHaveBeenCalled();
   });
 
@@ -174,7 +174,7 @@ describe('applyRulesToEntries', () => {
 
     const result = await applyRulesToEntries(tx, 'family-1', ['entry-1']);
 
-    expect(result).toEqual({ entriesUpdated: 1, rulesMatched: 1 });
+    expect(result).toEqual({ entriesUpdated: 1 });
     expect(updateCalls).toBe(1);
     expect(mocks.updateSetFn).toHaveBeenCalledWith({ categoryId: 'cat-coffee' });
   });
@@ -208,7 +208,7 @@ describe('applyRulesToEntries', () => {
 
     const result = await applyRulesToEntries(tx, 'family-1', ['entry-2']);
 
-    expect(result).toEqual({ entriesUpdated: 0, rulesMatched: 0 });
+    expect(result).toEqual({ entriesUpdated: 0 });
     expect(mocks.updateFn).not.toHaveBeenCalled();
   });
 
@@ -265,7 +265,7 @@ describe('applyRulesToEntries', () => {
       'entry-c',
     ]);
 
-    expect(result).toEqual({ entriesUpdated: 2, rulesMatched: 2 });
+    expect(result).toEqual({ entriesUpdated: 2 });
     expect(updateCalls).toBe(2);
   });
 
@@ -297,6 +297,6 @@ describe('applyRulesToEntries', () => {
     });
 
     const result = await applyRulesToEntries(tx, 'family-1', ['entry-a']);
-    expect(result).toEqual({ entriesUpdated: 1, rulesMatched: 1 });
+    expect(result).toEqual({ entriesUpdated: 1 });
   });
 });

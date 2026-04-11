@@ -5,8 +5,9 @@
  * Each test uses a unique family_id and cleans up in `afterEach` via
  * `DELETE FROM family WHERE id = ...` — the cascade handles all child rows.
  *
- * `@budget-tracker/simplefin` is vi.mock'd since Instance A's PR hasn't
- * merged yet. The mock stubs `decryptAccessUrl` and `fetchAccountSet`.
+ * `@budget-tracker/simplefin` is vi.mock'd so the test suite doesn't
+ * need a live SimpleFIN bridge. The mock stubs `decryptAccessUrl` and
+ * `fetchAccountSet`.
  */
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import Decimal from 'decimal.js';

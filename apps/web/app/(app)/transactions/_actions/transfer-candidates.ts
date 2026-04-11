@@ -32,7 +32,10 @@ const LIST_LIMIT = 50;
  *  UI can render a row without walking nested objects. */
 export interface TransferCandidateRow {
   candidateId: string;
-  confidence: string;
+  /** 0..1 from the core detector. Stored as `numeric(3,2)` and coerced
+   *  back to a JS number at the boundary so the UI can do arithmetic on
+   *  it without repeated `Number(...)` casts. */
+  confidence: number;
   entryA: {
     id: string;
     description: string;
@@ -113,7 +116,7 @@ export async function listPendingTransferCandidates(): Promise<
 
       result.push({
         candidateId: c.id,
-        confidence: c.confidence,
+        confidence: Number(c.confidence),
         entryA: {
           id: a.id,
           description: a.description,
