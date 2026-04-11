@@ -1,35 +1,25 @@
 /**
- * `@budget-tracker/core/reports` — query functions that back both the UI
- * and the AI tool layer.
+ * `@budget-tracker/core/reports` — pure report functions that back both
+ * the dashboard widgets and the AI tool adapters in `packages/ai`.
  *
- * PHASE 3 — not implemented yet. Each function here will receive a
- * family-scoped DB handle (via `@budget-tracker/db`) in a future phase
- * and return a PII-safe aggregate shape. The AI tool adapters in
- * `packages/ai` are a thin wrapper over these same functions.
+ * Framework-agnostic: every function takes pre-loaded row arrays as
+ * input and returns plain JSON-friendly output. The DB-query layer
+ * lives in `apps/web` server actions and `packages/jobs` helpers, not
+ * here. This keeps reports unit-testable without a database, browser,
+ * or network, and lets AI tool adapters wrap these functions with a
+ * one-line DB fetch.
  *
- * See `docs/ai-tools.md` for the full tool list that maps onto these.
+ * See `docs/plan.md` Phase 3 for the AI-tool mapping.
  */
 
-export function spendingByCategory(
-  _input: never,
-): Array<{ categoryId: string; total: string }> {
-  throw new Error('not implemented — phase 3+');
-}
-
-export function cashflow(
-  _input: never,
-): Array<{ period: string; income: string; expense: string; net: string }> {
-  throw new Error('not implemented — phase 3+');
-}
-
-export function netWorth(
-  _input: never,
-): { asset: string; liability: string; net: string; byAccountType: Record<string, string> } {
-  throw new Error('not implemented — phase 3+');
-}
-
-export function comparePeriods(
-  _input: never,
-): Array<{ dimension: string; a: string; b: string; delta: string }> {
-  throw new Error('not implemented — phase 3+');
-}
+export { spendingByCategory } from './spending-by-category.ts';
+export { cashflow } from './cashflow.ts';
+export type { CashflowGranularity } from './cashflow.ts';
+export { netWorth } from './net-worth.ts';
+export { comparePeriods } from './compare-periods.ts';
+export type { CompareDimension } from './compare-periods.ts';
+export type {
+  ReportEntryInput,
+  ReportAccountInput,
+  ReportWindow,
+} from './types.ts';
