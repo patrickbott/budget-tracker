@@ -48,6 +48,7 @@ export * from './rule.ts';
 export * from './budget.ts';
 export * from './recurring.ts';
 export * from './goal.ts';
+export * from './transfer-candidate.ts';
 
 // AI features.
 export * from './insight.ts';
