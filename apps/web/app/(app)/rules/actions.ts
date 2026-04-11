@@ -180,8 +180,9 @@ export async function runRulesOverPastEntries(
     const { familyId, userId } = await getSessionContext();
     const db = getDb();
 
-    const windowStart = new Date();
-    windowStart.setDate(windowStart.getDate() - APPLY_TO_PAST_WINDOW_DAYS);
+    const windowStart = new Date(
+      Date.now() - APPLY_TO_PAST_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
 
     let matchedCount = 0;
     let updatedCount = 0;

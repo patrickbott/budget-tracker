@@ -16,29 +16,13 @@ import {
   confirmTransferCandidate,
   dismissTransferCandidate,
   listPendingTransferCandidates,
+  type TransferCandidateRow,
 } from "../_actions/transfer-candidates";
 
-interface TransferCandidate {
-  candidateId: string;
-  confidence: number;
-  entryA: {
-    id: string;
-    description: string;
-    date: string;
-    amount: string;
-    accountName: string;
-  };
-  entryB: {
-    id: string;
-    description: string;
-    date: string;
-    amount: string;
-    accountName: string;
-  };
-}
-
 export function TransferCandidatesPanel() {
-  const [candidates, setCandidates] = useState<TransferCandidate[] | null>(null);
+  const [candidates, setCandidates] = useState<TransferCandidateRow[] | null>(
+    null,
+  );
   const [dismissed, setDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
@@ -47,7 +31,7 @@ export function TransferCandidatesPanel() {
   useEffect(() => {
     let cancelled = false;
     listPendingTransferCandidates()
-      .then((result: TransferCandidate[]) => {
+      .then((result: TransferCandidateRow[]) => {
         if (cancelled) return;
         setCandidates(result);
       })
@@ -136,7 +120,7 @@ export function TransferCandidatesPanel() {
               <EntrySide entry={c.entryA} />
               <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground md:px-2">
                 <ArrowRight className="h-4 w-4" />
-                <span>{Math.round(c.confidence * 100)}%</span>
+                <span>{Math.round(Number(c.confidence) * 100)}%</span>
               </div>
               <EntrySide entry={c.entryB} />
               <div className="flex shrink-0 gap-2 md:ml-auto">
@@ -169,7 +153,7 @@ export function TransferCandidatesPanel() {
 function EntrySide({
   entry,
 }: {
-  entry: TransferCandidate["entryA"];
+  entry: TransferCandidateRow["entryA"];
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col">

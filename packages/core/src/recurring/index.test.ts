@@ -224,4 +224,17 @@ describe('computeMissingDates', () => {
     // Expected: Jan, Mar, May, Jul → missing Mar
     expect(missing).toEqual(['2026-03-15']);
   });
+
+  it('throws when the expected-date sequence would exceed the safety cap', () => {
+    // 30 years of daily cadence = ~10,950 expected dates — above the cap.
+    expect(() =>
+      computeMissingDates({
+        cadence: 'weekly',
+        cadenceInterval: 1,
+        startDate: '1900-01-01',
+        endDate: '3000-01-01',
+        actualDates: [],
+      }),
+    ).toThrow(/expected-date sequence/);
+  });
 });

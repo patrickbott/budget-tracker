@@ -200,12 +200,17 @@ function generateExpectedDates(
   const out: string[] = [];
   const end = parseIsoDate(input.endDate);
   const current = parseIsoDate(input.startDate);
-  let iter = 0;
 
-  while (current.getTime() <= end.getTime() && iter < MAX_EXPECTED_DATES) {
+  while (current.getTime() <= end.getTime()) {
+    if (out.length >= MAX_EXPECTED_DATES) {
+      throw new Error(
+        `computeMissingDates: expected-date sequence exceeds ${MAX_EXPECTED_DATES} entries ` +
+          `for cadence ${input.cadence} (interval ${input.cadenceInterval}) between ` +
+          `${input.startDate} and ${input.endDate} — range too large`,
+      );
+    }
     out.push(formatIsoDate(current));
     advance(current, input.cadence, input.cadenceInterval);
-    iter++;
   }
   return out;
 }
