@@ -2,6 +2,7 @@ import Link from "next/link";
 import Decimal from "decimal.js";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatCurrency } from "@/lib/format";
 
 interface AccountCardProps {
   account: {
@@ -14,16 +15,6 @@ interface AccountCardProps {
     connectionId: string | null;
   };
   connectionNickname?: string | null;
-}
-
-function formatCurrency(balance: string, currency: string): string {
-  const d = new Decimal(balance);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(d.toNumber());
 }
 
 export function AccountCard({ account, connectionNickname }: AccountCardProps) {

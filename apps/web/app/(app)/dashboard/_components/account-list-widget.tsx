@@ -1,28 +1,8 @@
 import Link from "next/link";
 import Decimal from "decimal.js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-const ACCOUNT_TYPE_ORDER = [
-  "depository",
-  "credit_card",
-  "investment",
-  "loan",
-  "property",
-  "crypto",
-  "other_asset",
-  "other_liability",
-];
-
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  depository: "Depository",
-  credit_card: "Credit Card",
-  investment: "Investment",
-  loan: "Loan",
-  property: "Property",
-  crypto: "Crypto",
-  other_asset: "Other Asset",
-  other_liability: "Other Liability",
-};
+import { formatCurrency } from "@/lib/format";
+import { ACCOUNT_TYPE_ORDER, ACCOUNT_TYPE_LABELS } from "@/lib/account-types";
 
 interface AccountListWidgetProps {
   accounts: Array<{
@@ -33,16 +13,6 @@ interface AccountListWidgetProps {
     currency: string;
     isClosed: boolean;
   }>;
-}
-
-function formatCurrency(balance: string, currency: string): string {
-  const d = new Decimal(balance);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(d.toNumber());
 }
 
 export function AccountListWidget({ accounts }: AccountListWidgetProps) {

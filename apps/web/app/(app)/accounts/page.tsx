@@ -8,28 +8,7 @@ import { account, connection } from "@budget-tracker/db/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SummaryBar } from "./_components/summary-bar";
 import { AccountCard } from "./_components/account-card";
-
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  depository: "Depository",
-  credit_card: "Credit Card",
-  investment: "Investment",
-  loan: "Loan",
-  property: "Property",
-  crypto: "Crypto",
-  other_asset: "Other Asset",
-  other_liability: "Other Liability",
-};
-
-const ACCOUNT_TYPE_ORDER = [
-  "depository",
-  "credit_card",
-  "investment",
-  "loan",
-  "property",
-  "crypto",
-  "other_asset",
-  "other_liability",
-];
+import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_ORDER } from "@/lib/account-types";
 
 export default async function AccountsPage() {
   const session = await auth.api.getSession({ headers: await headers() });
