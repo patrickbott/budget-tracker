@@ -2,29 +2,24 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Decimal from "decimal.js";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 import { auth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/format";
 import { ACCOUNT_TYPE_LABELS } from "@/lib/account-types";
 import { withFamilyContext } from "@budget-tracker/db/client";
+import { account, connection } from "@budget-tracker/db/schema";
 import {
-  account,
-  entry,
-  entryLine,
-  category,
-  connection,
-} from "@budget-tracker/db/schema";
+  fetchRawEntries,
+  groupEntryRows,
+  fetchCategories,
+} from "@/lib/entry-queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import {
-  TransactionTable,
-  type TransactionRow,
-  type CategoryOption,
-} from "../../transactions/_components/transaction-table";
+import { TransactionTable } from "../../transactions/_components/transaction-table";
 import {
   BalanceChart,
   type BalanceDataPoint,
@@ -83,124 +78,24 @@ export default async function AccountDetailPage({
         connectionName = conn?.nickname ?? null;
       }
 
-      // Fetch entry lines for this account to build balance history + transactions.
-      const rawEntries = await tx
-        .select({
-          entryId: entry.id,
-          entryDate: entry.entryDate,
-          description: entry.description,
-          isPending: entry.isPending,
-          lineId: entryLine.id,
-          lineAccountId: entryLine.accountId,
-          lineCategoryId: entryLine.categoryId,
-          lineAmount: entryLine.amount,
-          accountName: account.name,
-          categoryName: category.name,
-          categoryColor: category.color,
-        })
-        .from(entry)
-        .innerJoin(entryLine, eq(entryLine.entryId, entry.id))
-        .leftJoin(account, eq(account.id, entryLine.accountId))
-        .leftJoin(category, eq(category.id, entryLine.categoryId))
-        .where(eq(entry.familyId, familyId))
-        .orderBy(desc(entry.entryDate));
+      // Fetch entries and group into transaction rows for this account.
+      const rawEntries = await fetchRawEntries(tx, familyId);
+      const transactionRows = groupEntryRows(rawEntries, accountId);
 
-      // Group lines by entry — only include entries that have a line touching this account.
-      const entryMap = new Map<
-        string,
-        {
-          entryId: string;
-          entryDate: Date;
-          description: string;
-          isPending: boolean;
-          accountLine?: {
-            lineId: string;
-            accountId: string;
-            accountName: string;
-            amount: string;
-          };
-          categoryLine?: {
-            lineId: string;
-            categoryId: string | null;
-            categoryName: string | null;
-            categoryColor: string | null;
-          };
-          touchesThisAccount: boolean;
-        }
-      >();
+      // Build balance history from the transaction rows.
+      const accountAmounts = transactionRows
+        .filter((r) => r.accountId === accountId)
+        .map((r) => ({
+          date: new Date(r.entryDate),
+          amount: new Decimal(r.amount),
+        }));
 
-      for (const row of rawEntries) {
-        if (!entryMap.has(row.entryId)) {
-          entryMap.set(row.entryId, {
-            entryId: row.entryId,
-            entryDate: row.entryDate,
-            description: row.description,
-            isPending: row.isPending,
-            touchesThisAccount: false,
-          });
-        }
-
-        const e = entryMap.get(row.entryId)!;
-
-        if (row.lineAccountId) {
-          if (row.lineAccountId === accountId) {
-            e.touchesThisAccount = true;
-          }
-          e.accountLine = {
-            lineId: row.lineId,
-            accountId: row.lineAccountId,
-            accountName: row.accountName ?? "Unknown",
-            amount: row.lineAmount,
-          };
-        } else {
-          e.categoryLine = {
-            lineId: row.lineId,
-            categoryId: row.lineCategoryId,
-            categoryName: row.categoryName,
-            categoryColor: row.categoryColor,
-          };
-        }
-      }
-
-      // Build transaction rows for this account only.
-      const transactionRows: TransactionRow[] = [];
-      // Collect account-side amounts for balance history (sorted chronologically).
-      const accountAmounts: { date: Date; amount: Decimal }[] = [];
-
-      for (const e of entryMap.values()) {
-        if (!e.touchesThisAccount || !e.accountLine) continue;
-
-        transactionRows.push({
-          entryId: e.entryId,
-          entryDate: e.entryDate.toISOString().split("T")[0]!,
-          description: e.description,
-          isPending: e.isPending,
-          accountLineId: e.accountLine.lineId,
-          accountId: e.accountLine.accountId,
-          accountName: e.accountLine.accountName,
-          amount: e.accountLine.amount,
-          categoryLineId: e.categoryLine?.lineId ?? e.accountLine.lineId,
-          categoryId: e.categoryLine?.categoryId ?? null,
-          categoryName: e.categoryLine?.categoryName ?? null,
-          categoryColor: e.categoryLine?.categoryColor ?? null,
-        });
-
-        if (e.accountLine.accountId === accountId) {
-          accountAmounts.push({
-            date: e.entryDate,
-            amount: new Decimal(e.accountLine.amount),
-          });
-        }
-      }
-
-      // Build balance history: walk backwards from current balance.
       accountAmounts.sort(
         (a, b) => b.date.getTime() - a.date.getTime(),
       );
       const balanceHistory: BalanceDataPoint[] = [];
       let runningBalance = new Decimal(acc.balance);
 
-      // Current balance is the first data point.
       balanceHistory.push({
         date: new Date().toISOString().split("T")[0]!,
         balance: runningBalance.toNumber(),
@@ -214,27 +109,16 @@ export default async function AccountDetailPage({
         });
       }
 
-      // Reverse so oldest is first for the chart.
       balanceHistory.reverse();
 
-      // Fetch categories for the dropdown.
-      const allCategories = await tx
-        .select({
-          id: category.id,
-          name: category.name,
-          color: category.color,
-        })
-        .from(category)
-        .where(
-          and(eq(category.familyId, familyId), eq(category.isArchived, false)),
-        );
+      const allCategories = await fetchCategories(tx, familyId);
 
       return {
         account: acc,
         connectionName,
         transactions: transactionRows,
         balanceHistory,
-        categories: allCategories as CategoryOption[],
+        categories: allCategories,
       };
     },
   );

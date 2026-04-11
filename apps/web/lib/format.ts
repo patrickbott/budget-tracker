@@ -12,6 +12,8 @@ export function formatCurrency(
 ): string {
   if (amount == null) return "—";
 
+  // Decimal.toNumber() is intentional here: Intl.NumberFormat requires a
+  // number, and display-only formatting doesn't need arbitrary precision.
   const n =
     typeof amount === "string" ? new Decimal(amount).toNumber() : amount;
 

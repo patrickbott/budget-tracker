@@ -52,6 +52,8 @@ export async function syncAllFamilies(boss: PgBoss): Promise<number> {
   const seen = new Set<string>();
   let queued = 0;
 
+  console.info(`[sync-family] Found ${rows.length} active connection(s) across all families`);
+
   for (const row of rows) {
     const key = row.connectionId;
     if (seen.has(key)) continue;

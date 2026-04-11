@@ -11,9 +11,7 @@ export { createBoss } from './boss-factory.ts';
 /**
  * Register all job handlers on the given pg-boss instance.
  *
- * Call this after `boss.start()`. Workers that are not yet implemented
- * get empty handlers so the queue drains cleanly if a job is published
- * before the worker is ready.
+ * Call this after `boss.start()`.
  *
  * This module imports @budget-tracker/simplefin transitively via
  * sync-connection.ts, so it's NOT exported from the barrel (index.ts).

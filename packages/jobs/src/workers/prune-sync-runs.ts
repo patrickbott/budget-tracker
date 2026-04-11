@@ -38,5 +38,5 @@ export async function pruneSyncRuns(): Promise<number> {
     );
   });
 
-  return result.length;
+  return result.count;
 }
