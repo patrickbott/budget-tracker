@@ -238,6 +238,112 @@ describe('comparePeriods', () => {
     ]);
   });
 
+  it('applies the half-open window on both edges in both windows', () => {
+    // WIN_A = [2026-02-01, 2026-03-01) → Feb-01 included, Mar-01 excluded
+    // WIN_B = [2026-03-01, 2026-04-01) → Mar-01 included, Apr-01 excluded
+    // Each edge entry uses a distinct amount so we can verify exactly
+    // which entries made it into which aggregate.
+    const entries: ReportEntryInput[] = [
+      // WIN_A start edge — included in A
+      {
+        entryId: 'a-start',
+        entryDate: '2026-02-01',
+        amountSigned: '-10.0000',
+        accountId: 'acc-checking',
+        categoryId: 'cat-boundary',
+        isTransfer: false,
+      },
+      // WIN_A end edge — EXCLUDED from A, but it equals WIN_B start → included in B
+      {
+        entryId: 'a-end',
+        entryDate: '2026-03-01',
+        amountSigned: '-999.0000',
+        accountId: 'acc-checking',
+        categoryId: 'cat-boundary',
+        isTransfer: false,
+      },
+      // WIN_B end edge — EXCLUDED from B entirely
+      {
+        entryId: 'b-end',
+        entryDate: '2026-04-01',
+        amountSigned: '-5000.0000',
+        accountId: 'acc-checking',
+        categoryId: 'cat-boundary',
+        isTransfer: false,
+      },
+    ];
+
+    // Expected:
+    //   A = 10 (only 2026-02-01)
+    //   B = 999 (only 2026-03-01; 2026-04-01 excluded)
+    expect(
+      comparePeriods({
+        entries,
+        windowA: WIN_A,
+        windowB: WIN_B,
+        dimension: 'category',
+      }),
+    ).toEqual([
+      { dimension: 'cat-boundary', a: '10.00', b: '999.00', delta: '989.00' },
+    ]);
+  });
+
+  it('breaks |delta| ties with an alphabetic ASC tiebreaker on dimension', () => {
+    // Three categories with identical |delta| of 50. We insert them in a
+    // non-alphabetic order so the test would fail if the sort were stable
+    // on insertion order instead of key-alpha.
+    const entries: ReportEntryInput[] = [
+      // cat-zeta: 100 → 50 (delta -50)
+      {
+        entryId: 'z-a',
+        entryDate: '2026-02-10',
+        amountSigned: '-100.0000',
+        accountId: 'acc-checking',
+        categoryId: 'cat-zeta',
+        isTransfer: false,
+      },
+      {
+        entryId: 'z-b',
+        entryDate: '2026-03-10',
+        amountSigned: '-50.0000',
+        accountId: 'acc-checking',
+        categoryId: 'cat-zeta',
+        isTransfer: false,
+      },
+      // cat-alpha: 0 → 50 (delta +50)
+      {
+        entryId: 'a-b',
+        entryDate: '2026-03-15',
+        amountSigned: '-50.0000',
+        accountId: 'acc-checking',
+        categoryId: 'cat-alpha',
+        isTransfer: false,
+      },
+      // cat-middle: 50 → 0 (delta -50)
+      {
+        entryId: 'm-a',
+        entryDate: '2026-02-20',
+        amountSigned: '-50.0000',
+        accountId: 'acc-checking',
+        categoryId: 'cat-middle',
+        isTransfer: false,
+      },
+    ];
+
+    const result = comparePeriods({
+      entries,
+      windowA: WIN_A,
+      windowB: WIN_B,
+      dimension: 'category',
+    });
+
+    expect(result.map((r) => r.dimension)).toEqual([
+      'cat-alpha',
+      'cat-middle',
+      'cat-zeta',
+    ]);
+  });
+
   it('groups by accountId when dimension === "account"', () => {
     const entries: ReportEntryInput[] = [
       {

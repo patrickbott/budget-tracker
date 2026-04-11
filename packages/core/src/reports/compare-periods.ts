@@ -43,7 +43,16 @@ export function comparePeriods(input: {
     return { key, a, b, delta: b.minus(a) };
   });
 
-  rows.sort((x, y) => y.delta.abs().cmp(x.delta.abs()));
+  // Primary sort: `|delta|` DESC (biggest movers first).
+  // Secondary sort: alphabetic on `key` ASC, so exact ties are
+  // deterministic. Matters mostly for AI-tool consumers, where a stable
+  // order across identical inputs avoids confusing the model with
+  // phantom reorderings.
+  rows.sort((x, y) => {
+    const byDelta = y.delta.abs().cmp(x.delta.abs());
+    if (byDelta !== 0) return byDelta;
+    return x.key < y.key ? -1 : x.key > y.key ? 1 : 0;
+  });
 
   return rows.map(({ key, a, b, delta }) => ({
     dimension: key,
