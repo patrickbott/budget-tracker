@@ -607,6 +607,10 @@ describe('syncConnection', () => {
     expect(result.transactionsCreated).toBe(3);
     expect(result.rulesApplied).toBe(1);
     expect(result.transferCandidatesCreated).toBe(1);
+    // Fixture has only 3 entries (1 Whole Foods + 2 transfer legs);
+    // none of the description groups reaches the 3-hit minimum the
+    // recurring detector requires, so this should always be 0 here.
+    expect(result.recurringCandidatesDetected).toBe(0);
 
     // The Whole Foods entry's category-side leg should now point at the
     // rule's target category, not at Uncategorized.

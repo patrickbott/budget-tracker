@@ -11,6 +11,7 @@ import { upsertEntriesForSimpleFin } from '../ingest/upsert-entries.ts';
 import { writeSyncRun } from '../ingest/write-sync-run.ts';
 import { applyRulesToEntries } from '../ingest/apply-rules.ts';
 import { detectAndPersistTransferCandidates } from '../ingest/detect-transfers.ts';
+import { detectRecurringCandidatesForFamily } from '../ingest/detect-recurring.ts';
 
 export interface SyncConnectionResult {
   syncRunId: string;
@@ -23,6 +24,10 @@ export interface SyncConnectionResult {
   /** Number of new `transfer_candidate` rows persisted by the post-sync
    *  detection pass. */
   transferCandidatesCreated: number;
+  /** Number of recurring candidates surfaced by the post-sync detection
+   *  pass. Ephemeral — not persisted; recomputed on every /recurring
+   *  page load. */
+  recurringCandidatesDetected: number;
   errlist: string[];
 }
 
@@ -196,6 +201,16 @@ export async function syncConnection(
         payload.familyId,
       );
 
+      // 6d. Scan the last 180 days and surface recurring patterns
+      // (subscriptions, rent, salary). No persistence — the /recurring
+      // page recomputes candidates on demand via the same helper. We
+      // still run it here so the result counter appears in sync
+      // telemetry.
+      const recurringResult = await detectRecurringCandidatesForFamily(
+        tx,
+        payload.familyId,
+      );
+
       // 7. Write sync run. Serialize the parsed account set for the audit log
       // (the raw HTTP response is not preserved through the parse pipeline).
       const syncRunId = await writeSyncRun(tx, {
@@ -229,6 +244,7 @@ export async function syncConnection(
         transactionsSkipped: totalSkipped,
         rulesApplied: rulesResult.entriesUpdated,
         transferCandidatesCreated: transfersResult.candidatesCreated,
+        recurringCandidatesDetected: recurringResult.candidates.length,
         errlist,
       };
     },
