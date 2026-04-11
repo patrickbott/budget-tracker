@@ -13,6 +13,10 @@ export interface UpsertResult {
   created: number;
   updated: number;
   skipped: number;
+  /** IDs of entries freshly INSERTed by this call. Used by the sync
+   *  worker to scope post-ingest rules application to just the new
+   *  rows rather than re-processing the whole family on every pull. */
+  createdEntryIds: string[];
 }
 
 /**
@@ -35,6 +39,7 @@ export async function upsertEntriesForSimpleFin(
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  const createdEntryIds: string[] = [];
 
   for (const b of built) {
     const existing = await tx
@@ -93,7 +98,8 @@ export async function upsertEntriesForSimpleFin(
     );
 
     created++;
+    createdEntryIds.push(insertedEntry!.id);
   }
 
-  return { created, updated, skipped };
+  return { created, updated, skipped, createdEntryIds };
 }
