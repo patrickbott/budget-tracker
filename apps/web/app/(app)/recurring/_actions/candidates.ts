@@ -155,6 +155,9 @@ export async function promoteRecurringCandidate(
     revalidatePath("/recurring");
     return { success: true, id };
   } catch (err) {
+    // Log server-side so the stack isn't lost to the string-only
+    // shape this action returns to the client.
+    console.error("promoteRecurringCandidate failed", err);
     return {
       success: false,
       error: err instanceof Error ? err.message : "Unknown error",
