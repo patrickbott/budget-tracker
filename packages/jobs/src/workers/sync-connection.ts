@@ -9,12 +9,20 @@ import { findOrCreateAccountBySimpleFinId } from '../ingest/account-lookup.ts';
 import { findOrCreateUncategorized } from '../ingest/category-lookup.ts';
 import { upsertEntriesForSimpleFin } from '../ingest/upsert-entries.ts';
 import { writeSyncRun } from '../ingest/write-sync-run.ts';
+import { applyRulesToEntries } from '../ingest/apply-rules.ts';
+import { detectAndPersistTransferCandidates } from '../ingest/detect-transfers.ts';
 
 export interface SyncConnectionResult {
   syncRunId: string;
   transactionsCreated: number;
   transactionsUpdated: number;
   transactionsSkipped: number;
+  /** Number of freshly-ingested entries whose category was rewritten by
+   *  an enabled rule during this sync. */
+  rulesApplied: number;
+  /** Number of new `transfer_candidate` rows persisted by the post-sync
+   *  detection pass. */
+  transferCandidatesCreated: number;
   errlist: string[];
 }
 
@@ -110,6 +118,7 @@ export async function syncConnection(
       let totalCreated = 0;
       let totalUpdated = 0;
       let totalSkipped = 0;
+      const newEntryIds: string[] = [];
 
       for (const sfAccount of accountSet.accounts) {
         // Auto-create account if this is a new SimpleFIN account we
@@ -140,6 +149,7 @@ export async function syncConnection(
         totalCreated += result.created;
         totalUpdated += result.updated;
         totalSkipped += result.skipped;
+        newEntryIds.push(...result.createdEntryIds);
 
         // Update account balance from SimpleFIN snapshot. Only update if
         // the SimpleFIN balance date is newer than what we have stored
@@ -165,6 +175,26 @@ export async function syncConnection(
             .where(eq(account.id, internalAccountId));
         }
       }
+
+      // 6b. Auto-apply enabled rules to the freshly-created entries so
+      // that any user-authored categorization lands without a manual
+      // pass through the transactions page. Scoped to `newEntryIds` —
+      // we never re-run rules on entries a previous sync already
+      // processed.
+      const rulesResult = await applyRulesToEntries(
+        tx,
+        payload.familyId,
+        newEntryIds,
+      );
+
+      // 6c. Scan the last 14 days for opposite-sign pairs that look
+      // like transfers between owned accounts and persist them as
+      // `pending` transfer_candidate rows. Idempotent via the
+      // (entry_a_id, entry_b_id) unique index.
+      const transfersResult = await detectAndPersistTransferCandidates(
+        tx,
+        payload.familyId,
+      );
 
       // 7. Write sync run. Serialize the parsed account set for the audit log
       // (the raw HTTP response is not preserved through the parse pipeline).
@@ -197,6 +227,8 @@ export async function syncConnection(
         transactionsCreated: totalCreated,
         transactionsUpdated: totalUpdated,
         transactionsSkipped: totalSkipped,
+        rulesApplied: rulesResult.entriesUpdated,
+        transferCandidatesCreated: transfersResult.candidatesCreated,
         errlist,
       };
     },

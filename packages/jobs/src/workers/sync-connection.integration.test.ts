@@ -5,8 +5,9 @@
  * Each test uses a unique family_id and cleans up in `afterEach` via
  * `DELETE FROM family WHERE id = ...` — the cascade handles all child rows.
  *
- * `@budget-tracker/simplefin` is vi.mock'd since Instance A's PR hasn't
- * merged yet. The mock stubs `decryptAccessUrl` and `fetchAccountSet`.
+ * `@budget-tracker/simplefin` is vi.mock'd so the test suite doesn't
+ * need a live SimpleFIN bridge. The mock stubs `decryptAccessUrl` and
+ * `fetchAccountSet`.
  */
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import Decimal from 'decimal.js';
@@ -502,5 +503,147 @@ describe('syncConnection', () => {
     );
     expect(syncRuns).toHaveLength(1);
     expect(syncRuns[0]!.errlist).toEqual(['AUTH_EXPIRED: Re-auth required']);
+  });
+
+  it('post-ingest: applies rules and persists transfer candidates', async () => {
+    const ids = makeTestIds();
+    await seedTestFixtures(ids);
+    const now = Math.floor(Date.now() / 1000);
+
+    // Seed a second account so the transfer detector has two owned
+    // accounts to pair entries across, and a rule that will match on
+    // one of the incoming descriptions.
+    const secondAccountId = ids.accountId.replace('40000000', '41000000');
+    const ruleId = ids.familyId.replace('10000000', '60000000');
+    const targetCategoryId = ids.familyId.replace('10000000', '70000000');
+
+    await dbConn.db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL row_security = off`);
+      await tx.insert(schema.account).values({
+        id: secondAccountId,
+        familyId: ids.familyId,
+        name: 'Test Savings',
+        accountType: 'depository',
+        simplefinAccountId: 'sf_acc_2',
+        balance: '0.0000',
+      });
+      await tx.insert(schema.category).values({
+        id: targetCategoryId,
+        familyId: ids.familyId,
+        name: 'Groceries',
+        kind: 'expense',
+      });
+      await tx.insert(schema.rule).values({
+        id: ruleId,
+        familyId: ids.familyId,
+        name: 'Whole Foods → Groceries',
+        stage: 'default',
+        enabled: true,
+        specificityScore: 10,
+        conditionsJson: [
+          { field: 'description', operator: 'contains', value: 'Whole Foods' },
+        ],
+        actionsJson: [{ type: 'set_category', value: targetCategoryId }],
+      });
+    });
+
+    const mockData = {
+      connections: [],
+      accounts: [
+        {
+          simplefinId: 'sf_acc_1',
+          simplefinConnId: 'conn_1',
+          name: 'Test Checking',
+          balance: new Decimal('900.0000'),
+          balanceDate: new Date(),
+          currency: 'USD',
+          transactions: [
+            {
+              simplefinId: 'txn_wf_1',
+              posted: new Date(now * 1000),
+              amount: new Decimal('-45.0000'),
+              description: 'Whole Foods Market',
+              pending: false,
+            },
+            {
+              simplefinId: 'txn_xfer_out_1',
+              posted: new Date(now * 1000),
+              amount: new Decimal('-500.0000'),
+              description: 'Transfer to Savings',
+              pending: false,
+            },
+          ],
+        },
+        {
+          simplefinId: 'sf_acc_2',
+          simplefinConnId: 'conn_1',
+          name: 'Test Savings',
+          balance: new Decimal('500.0000'),
+          balanceDate: new Date(),
+          currency: 'USD',
+          transactions: [
+            {
+              simplefinId: 'txn_xfer_in_1',
+              posted: new Date(now * 1000),
+              amount: new Decimal('500.0000'),
+              description: 'Transfer from Checking',
+              pending: false,
+            },
+          ],
+        },
+      ],
+      errors: [],
+      rateLimited: false,
+    };
+
+    vi.mocked(fetchAccountSet).mockResolvedValueOnce(mockData);
+
+    const result = await syncConnection({
+      connectionId: ids.connectionId,
+      familyId: ids.familyId,
+      userId: ids.userId,
+    });
+
+    expect(result.transactionsCreated).toBe(3);
+    expect(result.rulesApplied).toBe(1);
+    expect(result.transferCandidatesCreated).toBe(1);
+
+    // The Whole Foods entry's category-side leg should now point at the
+    // rule's target category, not at Uncategorized.
+    const categorizedLine = await withFamilyContext(
+      dbConn.db,
+      ids.familyId,
+      ids.userId,
+      async (tx) => {
+        return tx
+          .select({ categoryId: schema.entryLine.categoryId })
+          .from(schema.entryLine)
+          .innerJoin(schema.entry, sql`${schema.entry.id} = ${schema.entryLine.entryId}`)
+          .where(
+            sql`${schema.entry.externalId} = 'txn_wf_1' AND ${schema.entryLine.accountId} IS NULL`,
+          );
+      },
+    );
+    expect(categorizedLine).toHaveLength(1);
+    expect(categorizedLine[0]!.categoryId).toBe(targetCategoryId);
+
+    // A transfer_candidate row should exist for the opposite-sign pair.
+    const candidates = await withFamilyContext(
+      dbConn.db,
+      ids.familyId,
+      ids.userId,
+      async (tx) => {
+        return tx
+          .select({
+            id: schema.transferCandidate.id,
+            status: schema.transferCandidate.status,
+            confidence: schema.transferCandidate.confidence,
+          })
+          .from(schema.transferCandidate)
+          .where(sql`${schema.transferCandidate.familyId} = ${ids.familyId}`);
+      },
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.status).toBe('pending');
   });
 });
