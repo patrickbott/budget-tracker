@@ -1,17 +1,24 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, and, gte, lt, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
 
 import { auth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
 import { withFamilyContext } from "@budget-tracker/db/client";
-import { account, entry, entryLine, category } from "@budget-tracker/db/schema";
+import {
+  account,
+  budget,
+  entry,
+  entryLine,
+  category,
+} from "@budget-tracker/db/schema";
 
 import { NetWorthCard } from "./_components/net-worth-card";
 import { AccountListWidget } from "./_components/account-list-widget";
 import { CashflowChart } from "./_components/cashflow-chart";
 import { RecentTransactions } from "./_components/recent-transactions";
+import { BudgetStatusWidget } from "./_components/budget-status-widget";
 
 export default async function DashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -22,11 +29,8 @@ export default async function DashboardPage() {
 
   const db = getDb();
 
-  const { accounts, recentEntries, cashflowData } = await withFamilyContext(
-    db,
-    familyId,
-    session.user.id,
-    async (tx) => {
+  const { accounts, recentEntries, cashflowData, budgetItems } =
+    await withFamilyContext(db, familyId, session.user.id, async (tx) => {
       // Fetch all accounts
       const accts = await tx.select().from(account);
 
@@ -104,13 +108,82 @@ export default async function DashboardPage() {
           };
         });
 
+      // Budget status for current month
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+      const monthlyBudgets = await tx
+        .select({
+          id: budget.id,
+          categoryId: budget.categoryId,
+          amount: budget.amount,
+          mode: budget.mode,
+          categoryName: category.name,
+          categoryColor: category.color,
+        })
+        .from(budget)
+        .innerJoin(category, eq(category.id, budget.categoryId))
+        .where(
+          and(
+            eq(budget.period, "monthly"),
+            gte(budget.periodStart, monthStart),
+            lt(budget.periodStart, monthEnd),
+          ),
+        );
+
+      // If no monthly budgets match this exact period start, also check for
+      // any monthly budget with the most recent period start <= now (the user
+      // may have created a budget with a past start date that's still active).
+      let activeBudgets = monthlyBudgets;
+      if (activeBudgets.length === 0) {
+        activeBudgets = await tx
+          .select({
+            id: budget.id,
+            categoryId: budget.categoryId,
+            amount: budget.amount,
+            mode: budget.mode,
+            categoryName: category.name,
+            categoryColor: category.color,
+          })
+          .from(budget)
+          .innerJoin(category, eq(category.id, budget.categoryId))
+          .where(eq(budget.period, "monthly"));
+      }
+
+      const budgetStatusItems = [];
+      for (const b of activeBudgets) {
+        const [result] = await tx
+          .select({
+            total: sql<string>`COALESCE(SUM(${entryLine.amount}), '0')`,
+          })
+          .from(entryLine)
+          .innerJoin(entry, eq(entry.id, entryLine.entryId))
+          .where(
+            and(
+              eq(entryLine.categoryId, b.categoryId),
+              gte(entry.entryDate, monthStart),
+              lt(entry.entryDate, monthEnd),
+            ),
+          );
+
+        budgetStatusItems.push({
+          id: b.id,
+          categoryName: b.categoryName,
+          categoryColor: b.categoryColor,
+          mode: b.mode,
+          amount: b.amount,
+          actualSpend: result?.total ?? "0",
+        });
+      }
+
       return {
         accounts: accts,
         recentEntries: recent,
         cashflowData: cashflow,
+        budgetItems: budgetStatusItems,
       };
-    },
-  );
+    });
 
   return (
     <div className="space-y-6">
@@ -126,6 +199,7 @@ export default async function DashboardPage() {
         {/* Right column */}
         <div className="space-y-6">
           <CashflowChart data={cashflowData} />
+          <BudgetStatusWidget budgets={budgetItems} />
           <RecentTransactions entries={recentEntries} />
         </div>
       </div>
