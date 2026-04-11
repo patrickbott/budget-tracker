@@ -1,17 +1,12 @@
 /**
  * `@budget-tracker/core/rules` — Actual-Budget-style rules engine.
  *
- * PHASE 2 — not implemented yet. Every export here throws at runtime so
- * accidental callers get a loud failure during scaffolding. The signatures
- * are pinned now so consumers can write type-safe bindings against them
- * before the bodies exist.
- *
- * Module structure (planned):
+ * Module structure:
  *   - evaluator : given conditions + an entry, return match?
- *   - ranker    : stable-sort a list of rules by specificity score
- *   - inducer   : propose a rule from a single user-corrected example
+ *   - actions   : apply action list to an entry accumulator
  *   - runner    : apply a rule list to a batch of entries in pre → default
  *                 → post stages
+ *   - schemas   : Zod schemas for RuleCondition / RuleAction JSONB shapes
  *
  * See `docs/plan.md#phase-2-budgeting--rules` for the full behavior spec.
  */
@@ -31,34 +26,30 @@ export interface RuleEvaluableEntry {
   currency: string;
 }
 
-/**
- * Returns `true` iff every condition in the list matches the entry.
- * Conditions are ANDed together; an empty list matches everything.
- */
-export function evaluateConditions(
-  _conditions: readonly RuleCondition[],
-  _entry: RuleEvaluableEntry,
-): boolean {
-  throw new Error('not implemented — phase 2+');
+/** The output of applying rules to an entry — immutable input + mutable result fields. */
+export interface RuleResult extends RuleEvaluableEntry {
+  categoryId: string | null;
+  memo: string | null;
+  tags: string[];
+  isTransfer: boolean;
+  skipped: boolean;
 }
 
-/**
- * Compute a heuristic specificity score for a list of conditions. More
- * specific rules (e.g. description-is + amount-between) score higher.
- */
-export function computeSpecificityScore(
-  _conditions: readonly RuleCondition[],
-): number {
-  throw new Error('not implemented — phase 2+');
+/** A rule as consumed by the batch runner. */
+export interface RunnableRule {
+  ruleId: string;
+  stage: 'pre' | 'default' | 'post';
+  specificityScore: number;
+  conditions: readonly RuleCondition[];
+  actions: readonly RuleAction[];
 }
 
-/**
- * Apply an ordered list of actions to an entry-shaped accumulator, in
- * place. Returns a new object; the caller decides whether to persist.
- */
-export function applyActions(
-  _actions: readonly RuleAction[],
-  _entry: RuleEvaluableEntry,
-): RuleEvaluableEntry {
-  throw new Error('not implemented — phase 2+');
-}
+export { evaluateConditions, computeSpecificityScore } from './evaluator.ts';
+export { applyActions } from './actions.ts';
+export { runRules } from './runner.ts';
+export {
+  RuleConditionSchema,
+  RuleActionSchema,
+  RuleConditionsArraySchema,
+  RuleActionsArraySchema,
+} from './schemas.ts';
