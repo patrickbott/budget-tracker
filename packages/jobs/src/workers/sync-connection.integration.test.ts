@@ -334,7 +334,7 @@ describe('syncConnection', () => {
     expect(run2.transactionsSkipped).toBe(1);
   });
 
-  it('unmapped account: transactions are skipped, mapped ones still ingested', async () => {
+  it('auto-creates account for new SimpleFIN account and imports transactions', async () => {
     const ids = makeTestIds();
     await seedTestFixtures(ids);
     const now = Math.floor(Date.now() / 1000);
@@ -342,16 +342,16 @@ describe('syncConnection', () => {
     const mockData = makeMockAccountSet({
       accounts: [
         {
-          id: 'sf_acc_1', // mapped
+          id: 'sf_acc_1', // already mapped
           transactions: [
             { id: 'txn_mapped_1', posted: now, amount: '-20.0000', description: 'Mapped Txn' },
           ],
         },
         {
-          id: 'sf_acc_99', // NOT mapped
+          id: 'sf_acc_new', // new, should be auto-created
           transactions: [
-            { id: 'txn_unmapped_1', posted: now, amount: '-10.0000', description: 'Unmapped Txn' },
-            { id: 'txn_unmapped_2', posted: now, amount: '-15.0000', description: 'Unmapped Txn 2' },
+            { id: 'txn_new_1', posted: now, amount: '-10.0000', description: 'New Acct Txn' },
+            { id: 'txn_new_2', posted: now, amount: '-15.0000', description: 'New Acct Txn 2' },
           ],
         },
       ],
@@ -365,8 +365,90 @@ describe('syncConnection', () => {
       userId: ids.userId,
     });
 
-    expect(result.transactionsCreated).toBe(1);
-    expect(result.transactionsSkipped).toBe(2);
+    // All 3 transactions should be created (none skipped).
+    expect(result.transactionsCreated).toBe(3);
+    expect(result.transactionsSkipped).toBe(0);
+
+    // Verify the new account was auto-created.
+    const accounts = await withFamilyContext(
+      dbConn.db,
+      ids.familyId,
+      ids.userId,
+      async (tx) => {
+        return tx
+          .select({
+            id: schema.account.id,
+            name: schema.account.name,
+            simplefinAccountId: schema.account.simplefinAccountId,
+            accountType: schema.account.accountType,
+            isManual: schema.account.isManual,
+            connectionId: schema.account.connectionId,
+          })
+          .from(schema.account)
+          .where(sql`${schema.account.simplefinAccountId} = 'sf_acc_new'`);
+      },
+    );
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]!.name).toBe('Test Account');
+    expect(accounts[0]!.accountType).toBe('depository');
+    expect(accounts[0]!.isManual).toBe(false);
+    expect(accounts[0]!.connectionId).toBe(ids.connectionId);
+  });
+
+  it('updates account balance after sync', async () => {
+    const ids = makeTestIds();
+    await seedTestFixtures(ids);
+    const now = Math.floor(Date.now() / 1000);
+    const balanceDate = new Date();
+
+    const mockData = {
+      connections: [],
+      accounts: [{
+        simplefinId: 'sf_acc_1',
+        simplefinConnId: 'conn_1',
+        name: 'Test Account',
+        balance: new Decimal('2500.7500'),
+        balanceDate,
+        currency: 'USD',
+        transactions: [
+          {
+            simplefinId: 'txn_bal_1',
+            posted: new Date(now * 1000),
+            amount: new Decimal('-50.0000'),
+            description: 'Test',
+            pending: false,
+          },
+        ],
+      }],
+      errors: [],
+      rateLimited: false,
+    };
+
+    vi.mocked(fetchAccountSet).mockResolvedValueOnce(mockData);
+
+    await syncConnection({
+      connectionId: ids.connectionId,
+      familyId: ids.familyId,
+      userId: ids.userId,
+    });
+
+    // Verify balance was updated.
+    const [acct] = await withFamilyContext(
+      dbConn.db,
+      ids.familyId,
+      ids.userId,
+      async (tx) => {
+        return tx
+          .select({
+            balance: schema.account.balance,
+            balanceAsOf: schema.account.balanceAsOf,
+          })
+          .from(schema.account)
+          .where(sql`${schema.account.id} = ${ids.accountId}`);
+      },
+    );
+    expect(acct!.balance).toBe('2500.7500');
+    expect(acct!.balanceAsOf).not.toBeNull();
   });
 
   it('errlist surfacing: sets connection status to needs_reauth and writes errlist', async () => {
