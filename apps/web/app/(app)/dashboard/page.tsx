@@ -132,27 +132,8 @@ export default async function DashboardPage() {
           ),
         );
 
-      // If no monthly budgets match this exact period start, also check for
-      // any monthly budget with the most recent period start <= now (the user
-      // may have created a budget with a past start date that's still active).
-      let activeBudgets = monthlyBudgets;
-      if (activeBudgets.length === 0) {
-        activeBudgets = await tx
-          .select({
-            id: budget.id,
-            categoryId: budget.categoryId,
-            amount: budget.amount,
-            mode: budget.mode,
-            categoryName: category.name,
-            categoryColor: category.color,
-          })
-          .from(budget)
-          .innerJoin(category, eq(category.id, budget.categoryId))
-          .where(eq(budget.period, "monthly"));
-      }
-
       const budgetStatusItems = [];
-      for (const b of activeBudgets) {
+      for (const b of monthlyBudgets) {
         const [result] = await tx
           .select({
             total: sql<string>`COALESCE(SUM(${entryLine.amount}), '0')`,

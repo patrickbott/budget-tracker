@@ -84,6 +84,24 @@ export function ConditionBuilder({
       updated[index]!.value = updates.field === "amount" ? 0 : "";
     }
 
+    // Reset value when operator changes to/from a different shape
+    if (updates.operator && !updates.field) {
+      const prev = current.operator;
+      const next = updates.operator;
+      const shapeChanged =
+        (prev === "between") !== (next === "between") ||
+        (prev === "one_of") !== (next === "one_of");
+      if (shapeChanged) {
+        if (next === "between") {
+          updated[index]!.value = [0, 0] as [number, number];
+        } else if (next === "one_of") {
+          updated[index]!.value = [] as string[];
+        } else {
+          updated[index]!.value = current.field === "amount" ? 0 : "";
+        }
+      }
+    }
+
     onChange(updated);
   }
 
