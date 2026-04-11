@@ -102,17 +102,21 @@ function evaluateCondition(
     }
 
     case 'between': {
-      const val = condition.field === 'date' ? raw : raw;
       const [lo, hi] = condition.value as [number | string, number | string];
 
       if (condition.field === 'date') {
         // Lexicographic comparison works for ISO date strings (YYYY-MM-DD)
-        return val >= String(lo) && val <= String(hi);
+        return raw >= String(lo) && raw <= String(hi);
       }
 
-      const a = new Decimal(val);
+      const a = new Decimal(raw);
       return a.greaterThanOrEqualTo(new Decimal(String(lo))) &&
         a.lessThanOrEqualTo(new Decimal(String(hi)));
+    }
+
+    default: {
+      const _exhaustive: never = condition.operator;
+      throw new Error(`Unknown operator: ${_exhaustive}`);
     }
   }
 }
