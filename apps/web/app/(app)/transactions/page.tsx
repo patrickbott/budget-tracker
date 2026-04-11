@@ -12,6 +12,7 @@ import {
 } from "@/lib/entry-queries";
 
 import { TransactionTable } from "./_components/transaction-table";
+import { TransferCandidatesPanel } from "./_components/transfer-candidates-panel";
 
 export default async function TransactionsPage() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -55,6 +56,7 @@ export default async function TransactionsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
+      <TransferCandidatesPanel />
       <TransactionTable
         data={rows}
         categories={categories}

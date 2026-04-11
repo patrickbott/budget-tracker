@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@budget-tracker/core": "workspace:*",
     "@budget-tracker/db": "workspace:*",
     "@budget-tracker/jobs": "workspace:*",
     "@budget-tracker/simplefin": "workspace:*",

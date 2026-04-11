@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { useState, useTransition } from "react";
+import { Pencil, Trash2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { RuleCondition, RuleAction } from "@budget-tracker/db/schema";
-import { deleteRule, toggleRuleEnabled } from "../actions";
+import {
+  deleteRule,
+  runRulesOverPastEntries,
+  toggleRuleEnabled,
+} from "../actions";
 import { RuleForm } from "./rule-form";
 
 interface RuleRowProps {
@@ -53,6 +57,8 @@ function summarizeActions(
 export function RuleRow({ rule: r, categories, categoryMap }: RuleRowProps) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [isApplying, startApply] = useTransition();
 
   async function handleToggle() {
     const result = await toggleRuleEnabled(r.id);
@@ -71,6 +77,30 @@ export function RuleRow({ rule: r, categories, categoryMap }: RuleRowProps) {
       setError(result.error ?? "Failed to delete");
       setConfirming(false);
     }
+  }
+
+  function handleApplyToPast() {
+    const ok = window.confirm(
+      "This will apply this rule to all existing transactions from the last 180 days. Continue?",
+    );
+    if (!ok) return;
+
+    setError(null);
+    setStatus(null);
+    startApply(async () => {
+      const result = await runRulesOverPastEntries(r.id);
+      if (!result.success) {
+        setError(result.error ?? "Failed to apply rule");
+        return;
+      }
+      const matched = result.matchedCount ?? 0;
+      const updated = result.updatedCount ?? 0;
+      setStatus(
+        updated === 0 && matched === 0
+          ? "No transactions matched."
+          : `Matched ${matched}, updated ${updated} transaction${updated === 1 ? "" : "s"}.`,
+      );
+    });
   }
 
   return (
@@ -103,6 +133,17 @@ export function RuleRow({ rule: r, categories, categoryMap }: RuleRowProps) {
 
       {/* Actions */}
       <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={handleApplyToPast}
+          disabled={isApplying}
+          title="Apply to past transactions"
+          aria-label="Apply to past transactions"
+        >
+          <Play className="h-4 w-4" />
+        </Button>
         <RuleForm
           mode="edit"
           rule={r}
@@ -125,6 +166,7 @@ export function RuleRow({ rule: r, categories, categoryMap }: RuleRowProps) {
         </Button>
       </div>
 
+      {status && <p className="text-xs text-muted-foreground">{status}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );

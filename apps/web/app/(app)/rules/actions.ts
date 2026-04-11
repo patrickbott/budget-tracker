@@ -2,12 +2,27 @@
 
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull } from "drizzle-orm";
 
 import { auth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
 import { withFamilyContext } from "@budget-tracker/db/client";
-import { rule, type RuleCondition, type RuleAction } from "@budget-tracker/db/schema";
+import {
+  account,
+  entry,
+  entryLine,
+  rule,
+  type RuleCondition,
+  type RuleAction,
+} from "@budget-tracker/db/schema";
+import {
+  computeSpecificityScore,
+  runRules,
+  type RuleEvaluableEntry,
+  type RunnableRule,
+} from "@budget-tracker/core/rules";
+
+const APPLY_TO_PAST_WINDOW_DAYS = 180;
 
 async function getSessionContext() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -17,31 +32,6 @@ async function getSessionContext() {
   if (!familyId) throw new Error("No active family selected");
 
   return { familyId, userId: session.user.id };
-}
-
-/**
- * Inline specificity scorer. Instance A is building the canonical version
- * in packages/core — we'll swap it in later.
- *
- * Scoring: is=3, matches_regex=2, contains=1, between=2,
- * greater_than=1, less_than=1, one_of=2, is_not=2, does_not_contain=1
- */
-function computeSpecificityScore(conditions: RuleCondition[]): number {
-  const scores: Record<string, number> = {
-    is: 3,
-    is_not: 2,
-    contains: 1,
-    does_not_contain: 1,
-    matches_regex: 2,
-    one_of: 2,
-    greater_than: 1,
-    less_than: 1,
-    between: 2,
-  };
-  return conditions.reduce(
-    (sum, c) => sum + (scores[c.operator] ?? 0),
-    0,
-  );
 }
 
 export async function createRule(data: {
@@ -161,6 +151,155 @@ export async function toggleRuleEnabled(
 
     revalidatePath("/rules");
     return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    };
+  }
+}
+
+/**
+ * Apply a single rule to the family's historical entries, updating category
+ * assignments for any matches. Scoped to the last 180 days to bound the
+ * working set — older history can be re-categorized by editing the rule
+ * and re-running, or from a dedicated backfill tool if we ever need one.
+ *
+ * Runs synchronously inside the request; fine at personal-finance scale
+ * (a single family rarely has more than a few thousand entries in 180 days).
+ */
+export async function runRulesOverPastEntries(
+  ruleId: string,
+): Promise<{
+  success: boolean;
+  matchedCount?: number;
+  updatedCount?: number;
+  error?: string;
+}> {
+  try {
+    const { familyId, userId } = await getSessionContext();
+    const db = getDb();
+
+    const windowStart = new Date(
+      Date.now() - APPLY_TO_PAST_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    let matchedCount = 0;
+    let updatedCount = 0;
+
+    await withFamilyContext(db, familyId, userId, async (tx) => {
+      const [ruleRecord] = await tx
+        .select({
+          id: rule.id,
+          stage: rule.stage,
+          specificityScore: rule.specificityScore,
+          conditionsJson: rule.conditionsJson,
+          actionsJson: rule.actionsJson,
+        })
+        .from(rule)
+        .where(eq(rule.id, ruleId));
+
+      if (!ruleRecord) throw new Error("Rule not found");
+
+      const accountRows = await tx
+        .select({
+          entryId: entry.id,
+          entryDate: entry.entryDate,
+          description: entry.description,
+          accountId: entryLine.accountId,
+          amount: entryLine.amount,
+          currency: account.currency,
+        })
+        .from(entry)
+        .innerJoin(
+          entryLine,
+          and(eq(entryLine.entryId, entry.id), isNotNull(entryLine.accountId)),
+        )
+        .innerJoin(account, eq(account.id, entryLine.accountId))
+        .where(
+          and(eq(entry.familyId, familyId), gte(entry.entryDate, windowStart)),
+        );
+
+      const categoryRows = await tx
+        .select({
+          entryId: entryLine.entryId,
+          categoryLineId: entryLine.id,
+          currentCategoryId: entryLine.categoryId,
+        })
+        .from(entryLine)
+        .innerJoin(entry, eq(entry.id, entryLine.entryId))
+        .where(
+          and(
+            eq(entry.familyId, familyId),
+            gte(entry.entryDate, windowStart),
+            isNull(entryLine.accountId),
+          ),
+        );
+
+      const categoryByEntryId = new Map(
+        categoryRows.map((r) => [
+          r.entryId,
+          { categoryLineId: r.categoryLineId, currentCategoryId: r.currentCategoryId },
+        ]),
+      );
+
+      const evaluables: RuleEvaluableEntry[] = [];
+      const meta: Array<{
+        entryId: string;
+        categoryLineId: string;
+        currentCategoryId: string | null;
+      }> = [];
+
+      for (const row of accountRows) {
+        const cat = categoryByEntryId.get(row.entryId);
+        if (!cat) continue; // transfer/split — skip entries without a single category leg
+
+        evaluables.push({
+          description: row.description,
+          amount: row.amount,
+          accountId: row.accountId,
+          entryDate: row.entryDate.toISOString().split("T")[0]!,
+          currency: row.currency,
+        });
+        meta.push({
+          entryId: row.entryId,
+          categoryLineId: cat.categoryLineId,
+          currentCategoryId: cat.currentCategoryId,
+        });
+      }
+
+      const runnable: RunnableRule = {
+        ruleId: ruleRecord.id,
+        stage: ruleRecord.stage,
+        specificityScore: ruleRecord.specificityScore,
+        conditions: ruleRecord.conditionsJson,
+        actions: ruleRecord.actionsJson,
+      };
+
+      const results = runRules([runnable], evaluables);
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i]!;
+        const m = meta[i]!;
+
+        // initResult sets categoryId to null — any non-null value means the
+        // rule's set_category action fired for this entry.
+        if (result.categoryId === null) continue;
+        matchedCount++;
+
+        if (result.categoryId === m.currentCategoryId) continue;
+
+        await tx
+          .update(entryLine)
+          .set({ categoryId: result.categoryId })
+          .where(eq(entryLine.id, m.categoryLineId));
+        updatedCount++;
+      }
+    });
+
+    revalidatePath("/transactions");
+    revalidatePath("/rules");
+    return { success: true, matchedCount, updatedCount };
   } catch (err) {
     return {
       success: false,
