@@ -51,4 +51,50 @@ export {
   type ComparePeriodsOutput,
 } from './tools/compare-periods.ts';
 
+export {
+  findTransactionsArgs,
+  findTransactionsOutput,
+  findTransactionsTool,
+  type FindTransactionsArgs,
+  type FindTransactionsOutput,
+} from './tools/find-transactions.ts';
+
+export {
+  budgetStatusArgs,
+  budgetStatusOutput,
+  budgetStatusTool,
+  type BudgetStatusArgs,
+  type BudgetStatusOutput,
+} from './tools/budget-status.ts';
+
+export {
+  recurringStatusArgs,
+  recurringStatusOutput,
+  recurringStatusTool,
+  type RecurringStatusArgs,
+  type RecurringStatusOutput,
+} from './tools/recurring-status.ts';
+
+export {
+  listCategoriesArgs,
+  listCategoriesOutput,
+  listCategoriesTool,
+  type ListCategoriesArgs,
+  type ListCategoriesOutput,
+} from './tools/list-categories.ts';
+
+export {
+  listAccountsArgs,
+  listAccountsOutput,
+  listAccountsTool,
+  type ListAccountsArgs,
+  type ListAccountsOutput,
+} from './tools/list-accounts.ts';
+
+export {
+  checkSpendCap,
+  estimateCost,
+  type SpendCapResult,
+} from './cost-cap.ts';
+
 export { createAnthropicClient } from './client.ts';

@@ -57,6 +57,94 @@ export interface ToolLoaders {
    * back to the raw ID string in the adapter.
    */
   loadAccountNameMap(): Promise<Map<string, string>>;
+
+  /**
+   * Search/filter transactions. Returns pre-shaped rows ready for the
+   * `find_transactions` adapter. `query` is an optional full-text search
+   * string; `filters` narrow by account, category, date range, or
+   * amount range. Implementations enforce the family-scoped RLS.
+   */
+  loadTransactions(params: {
+    query?: string;
+    filters?: {
+      accountId?: string;
+      categoryId?: string;
+      startDate?: string;
+      endDate?: string;
+      minAmount?: string;
+      maxAmount?: string;
+    };
+    limit: number;
+  }): Promise<{
+    rows: Array<{
+      entryId: string;
+      date: string;
+      amount: string;
+      description: string;
+      categoryName: string | null;
+      accountName: string;
+    }>;
+    total: number;
+  }>;
+
+  /**
+   * Per-category budget status for a date range. Returns the budget
+   * configuration alongside actual spend so the adapter can compute
+   * thresholds without touching the database.
+   */
+  loadBudgetStatus(
+    periodStart: string,
+    periodEnd: string,
+  ): Promise<
+    Array<{
+      categoryName: string;
+      budgetMode: 'hard_cap' | 'forecast';
+      budgetAmount: string;
+      actualSpend: string;
+    }>
+  >;
+
+  /**
+   * All active recurring transaction series for the family. Returns
+   * series-level metadata plus expected/missing date analysis so the
+   * adapter can derive on_time / late / missing status.
+   */
+  loadRecurringStatus(): Promise<
+    Array<{
+      title: string;
+      amount: string;
+      cadence: string;
+      lastSeenDate: string | null;
+      nextExpectedDate: string | null;
+      missingDates: string[];
+    }>
+  >;
+
+  /**
+   * Directory lookup: all categories for the family. Used by the
+   * `list_categories` tool so the model can map natural-language
+   * category names to IDs before calling other tools.
+   */
+  loadCategories(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      parentName: string | null;
+    }>
+  >;
+
+  /**
+   * Directory lookup: all accounts for the family. Used by the
+   * `list_accounts` tool so the model can map account names to IDs.
+   */
+  loadAccountsList(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      accountType: string;
+      visibility: 'household' | 'personal';
+    }>
+  >;
 }
 
 /**
