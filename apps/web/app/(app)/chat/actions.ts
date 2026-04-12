@@ -29,8 +29,8 @@ import { createToolLoaders } from "@/lib/ai/tool-loaders";
 const MAX_TOOL_ITERATIONS = 10;
 const MAX_OUTPUT_TOKENS = 4096;
 const MODEL = "claude-opus-4-6-20250414";
-/** Pricing-compatible model key (without date suffix). */
-const MODEL_BASE = "claude-opus-4-6";
+/** Pricing-compatible model key (strip date suffix like -20250414). */
+const MODEL_BASE = MODEL.replace(/-\d{8}$/, "");
 const SPEND_CAP_USD = Number(process.env.AI_MONTHLY_SPEND_CAP_USD ?? "10");
 
 const SYSTEM_PROMPT = `You are a helpful personal finance assistant for a self-hosted budget tracker. You have access to tools that query the user's financial data — spending, cashflow, net worth, and period comparisons.

@@ -64,7 +64,9 @@ export function createToolLoaders(
         eq(entry.familyId, familyId),
       ];
       if (query) {
-        conditions.push(ilike(entry.description, `%${query}%`));
+        // Escape SQL wildcards so user input is treated as literal text
+        const escaped = query.replace(/[%_]/g, "\\$&");
+        conditions.push(ilike(entry.description, `%${escaped}%`));
       }
       if (filters?.startDate) {
         conditions.push(
