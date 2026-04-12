@@ -26,10 +26,25 @@ import {
   comparePeriodsTool,
 } from './compare-periods.ts';
 import {
+  explainVarianceArgs,
+  explainVarianceOutput,
+  explainVarianceTool,
+} from './explain-variance.ts';
+import {
+  findSubscriptionsArgs,
+  findSubscriptionsOutput,
+  findSubscriptionsTool,
+} from './find-subscriptions.ts';
+import {
   findTransactionsArgs,
   findTransactionsOutput,
   findTransactionsTool,
 } from './find-transactions.ts';
+import {
+  forecastMonthEndArgs,
+  forecastMonthEndOutput,
+  forecastMonthEndTool,
+} from './forecast-month-end.ts';
 import {
   getCashflowArgs,
   getCashflowOutput,
@@ -56,10 +71,20 @@ import {
   listCategoriesTool,
 } from './list-categories.ts';
 import {
+  proposeRuleArgs,
+  proposeRuleOutput,
+  proposeRuleTool,
+} from './propose-rule.ts';
+import {
   recurringStatusArgs,
   recurringStatusOutput,
   recurringStatusTool,
 } from './recurring-status.ts';
+import {
+  savingOpportunitiesArgs,
+  savingOpportunitiesOutput,
+  savingOpportunitiesTool,
+} from './saving-opportunities.ts';
 import type { ToolAdapter } from './types.ts';
 
 export interface ToolRegistryEntry<TArgs = unknown, TOutput = unknown> {
@@ -159,6 +184,56 @@ export const TOOL_REGISTRY = {
   } satisfies ToolRegistryEntry<
     import('./list-accounts.ts').ListAccountsArgs,
     import('./list-accounts.ts').ListAccountsOutput
+  >,
+  forecast_month_end: {
+    description:
+      'Linear + trend-adjusted projection of spending through end of current month, optionally scoped to a single category. Compares projection against budget to flag on_track / off_track.',
+    inputSchema: forecastMonthEndArgs,
+    outputSchema: forecastMonthEndOutput,
+    handler: forecastMonthEndTool,
+  } satisfies ToolRegistryEntry<
+    import('./forecast-month-end.ts').ForecastMonthEndArgs,
+    import('./forecast-month-end.ts').ForecastMonthEndOutput
+  >,
+  explain_variance: {
+    description:
+      'Explains why spending in a category changed vs the prior period. Returns the driver transactions (new merchants, large charges) that account for the variance.',
+    inputSchema: explainVarianceArgs,
+    outputSchema: explainVarianceOutput,
+    handler: explainVarianceTool,
+  } satisfies ToolRegistryEntry<
+    import('./explain-variance.ts').ExplainVarianceArgs,
+    import('./explain-variance.ts').ExplainVarianceOutput
+  >,
+  find_subscriptions: {
+    description:
+      'Detects recurring small-amount charges (subscriptions). Flags stale/unused ones. Returns annual cost and active/stale status for each.',
+    inputSchema: findSubscriptionsArgs,
+    outputSchema: findSubscriptionsOutput,
+    handler: findSubscriptionsTool,
+  } satisfies ToolRegistryEntry<
+    import('./find-subscriptions.ts').FindSubscriptionsArgs,
+    import('./find-subscriptions.ts').FindSubscriptionsOutput
+  >,
+  saving_opportunities: {
+    description:
+      'Surfaces actionable saving opportunities: high-spend categories (vs prior month), stale subscriptions, fee accumulation, and over-budget categories. Sorted by potential savings.',
+    inputSchema: savingOpportunitiesArgs,
+    outputSchema: savingOpportunitiesOutput,
+    handler: savingOpportunitiesTool,
+  } satisfies ToolRegistryEntry<
+    import('./saving-opportunities.ts').SavingOpportunitiesArgs,
+    import('./saving-opportunities.ts').SavingOpportunitiesOutput
+  >,
+  propose_rule: {
+    description:
+      'Drafts a categorization rule from an example transaction. Extracts merchant pattern, optionally adds amount range, and tests against history for confidence. Returns rule spec for user acceptance.',
+    inputSchema: proposeRuleArgs,
+    outputSchema: proposeRuleOutput,
+    handler: proposeRuleTool,
+  } satisfies ToolRegistryEntry<
+    import('./propose-rule.ts').ProposeRuleArgs,
+    import('./propose-rule.ts').ProposeRuleOutput
   >,
 } as const;
 

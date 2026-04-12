@@ -92,6 +92,46 @@ export {
 } from './tools/list-accounts.ts';
 
 export {
+  forecastMonthEndArgs,
+  forecastMonthEndOutput,
+  forecastMonthEndTool,
+  type ForecastMonthEndArgs,
+  type ForecastMonthEndOutput,
+} from './tools/forecast-month-end.ts';
+
+export {
+  explainVarianceArgs,
+  explainVarianceOutput,
+  explainVarianceTool,
+  type ExplainVarianceArgs,
+  type ExplainVarianceOutput,
+} from './tools/explain-variance.ts';
+
+export {
+  findSubscriptionsArgs,
+  findSubscriptionsOutput,
+  findSubscriptionsTool,
+  type FindSubscriptionsArgs,
+  type FindSubscriptionsOutput,
+} from './tools/find-subscriptions.ts';
+
+export {
+  savingOpportunitiesArgs,
+  savingOpportunitiesOutput,
+  savingOpportunitiesTool,
+  type SavingOpportunitiesArgs,
+  type SavingOpportunitiesOutput,
+} from './tools/saving-opportunities.ts';
+
+export {
+  proposeRuleArgs,
+  proposeRuleOutput,
+  proposeRuleTool,
+  type ProposeRuleArgs,
+  type ProposeRuleOutput,
+} from './tools/propose-rule.ts';
+
+export {
   checkSpendCap,
   estimateCost,
   type SpendCapResult,

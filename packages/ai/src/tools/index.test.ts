@@ -3,17 +3,22 @@ import { describe, expect, it } from 'vitest';
 import { TOOL_REGISTRY, toAnthropicToolDefinitions } from './index.ts';
 
 describe('TOOL_REGISTRY', () => {
-  it('exposes all nine Phase 3 R2+R3 tools by name', () => {
+  it('exposes all fourteen Phase 3 R2–R4 tools by name', () => {
     expect(Object.keys(TOOL_REGISTRY).sort()).toEqual([
       'budget_status',
       'compare_periods',
+      'explain_variance',
+      'find_subscriptions',
       'find_transactions',
+      'forecast_month_end',
       'get_cashflow',
       'get_net_worth',
       'get_spending_by_category',
       'list_accounts',
       'list_categories',
+      'propose_rule',
       'recurring_status',
+      'saving_opportunities',
     ]);
   });
 
@@ -32,7 +37,7 @@ describe('TOOL_REGISTRY', () => {
 describe('toAnthropicToolDefinitions', () => {
   it('returns one definition per registry entry', () => {
     const defs = toAnthropicToolDefinitions(TOOL_REGISTRY);
-    expect(defs).toHaveLength(9);
+    expect(defs).toHaveLength(14);
   });
 
   it('produces non-empty input_schema objects', () => {
