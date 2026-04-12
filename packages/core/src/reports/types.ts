@@ -38,7 +38,8 @@ export interface ReportAccountInput {
     | 'loan'
     | 'property'
     | 'crypto'
-    | 'other';
+    | 'other_asset'
+    | 'other_liability';
   /** Current balance as a decimal string. Assets positive, liabilities
    *  negative on input — we do the asset/liability split inside. */
   balance: string;

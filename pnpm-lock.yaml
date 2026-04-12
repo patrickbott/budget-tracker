@@ -38,6 +38,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.88.0
+        version: 0.88.0(zod@4.3.6)
+      '@budget-tracker/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@budget-tracker/core':
         specifier: workspace:*
         version: link:../../packages/core
