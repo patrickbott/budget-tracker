@@ -7,6 +7,8 @@ import {
   TrendingUp,
   CreditCard,
   Menu,
+  AlertTriangle,
+  Ban,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -62,6 +64,12 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [spendCap, setSpendCap] = useState<{
+    percentUsed: number;
+    warning: boolean;
+    blocked: boolean;
+    message?: string;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -79,15 +87,19 @@ export default function ChatPage() {
   }, [messages, scrollToBottom]);
 
   async function loadConversations() {
-    const convs = await getConversations();
-    setConversations(convs);
+    const result = await getConversations();
+    if (result.success && result.data) {
+      setConversations(result.data);
+    }
   }
 
   async function selectConversation(convId: string) {
     setActiveConvId(convId);
     setSidebarOpen(false);
-    const msgs = await getMessages(convId);
-    setMessages(msgs);
+    const result = await getMessages(convId);
+    if (result.success && result.data) {
+      setMessages(result.data);
+    }
   }
 
   function startNewChat() {
@@ -129,6 +141,28 @@ export default function ChatPage() {
       if (result.success && result.data) {
         // Update conversation ID (may be newly created)
         setActiveConvId(result.data.conversationId);
+
+        // Update spend-cap state from response
+        if (result.data.spendCap) {
+          const sc = result.data.spendCap;
+          const blocked = sc.percentUsed >= 100;
+          setSpendCap({
+            percentUsed: sc.percentUsed,
+            warning: sc.warning,
+            blocked,
+            message: sc.message,
+          });
+
+          // Blocked pre-check: request never reached Anthropic
+          if (blocked && !result.data.assistantMessage) {
+            setMessages((prev) =>
+              prev.filter((m) => m.id !== optimisticMsg.id),
+            );
+            return;
+          }
+        } else {
+          setSpendCap(null);
+        }
 
         // Add assistant message
         const assistantMsg: Message = {
@@ -198,6 +232,25 @@ export default function ChatPage() {
           <h1 className="text-sm font-semibold">Chat</h1>
         </div>
 
+        {/* Spend-cap banners */}
+        {spendCap?.blocked && (
+          <div className="flex items-center gap-2 border-b bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+            <Ban className="h-4 w-4 shrink-0" />
+            <span>
+              Monthly AI budget reached. Chat will resume next month.
+            </span>
+          </div>
+        )}
+        {spendCap?.warning && !spendCap.blocked && (
+          <div className="flex items-center gap-2 border-b bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>
+              {spendCap.message ??
+                `You've used ${Math.round(spendCap.percentUsed)}% of your monthly AI budget.`}
+            </span>
+          </div>
+        )}
+
         {/* Messages or empty state */}
         <div className="flex-1 overflow-y-auto p-4">
           {messages.length === 0 && !sending ? (
@@ -223,7 +276,7 @@ export default function ChatPage() {
           value={input}
           onChange={setInput}
           onSend={handleSend}
-          disabled={sending}
+          disabled={sending || !!spendCap?.blocked}
         />
       </div>
     </div>
