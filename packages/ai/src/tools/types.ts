@@ -1,0 +1,70 @@
+/**
+ * Tool-adapter contract. Adapters in `packages/ai/src/tools/` are thin
+ * wrappers around the pure `@budget-tracker/core/reports` functions:
+ * they validate args with Zod, fetch rows through the injected loaders,
+ * call the pure function, remap category IDs → display names, strip
+ * PII, validate the output with Zod, and return.
+ *
+ * Loaders are injected (not imported from `apps/web` or `packages/db`)
+ * to keep `packages/ai` framework-agnostic and unit-testable. Instance
+ * A wires the real DB-backed implementation into `apps/web` server
+ * actions in a subsequent round; tests here use fake loaders over
+ * fixture arrays.
+ */
+
+import type {
+  ReportAccountInput,
+  ReportEntryInput,
+  ReportWindow,
+} from '@budget-tracker/core/reports';
+
+/**
+ * Dependency-injection point for tool adapters.
+ *
+ * A single `ToolLoaders` is built per-request (or per-test), scoped to
+ * the current `family_id` through row-level security at the DB layer.
+ * Adapters never reach around this — if a tool needs new data, a new
+ * loader method goes here and gets implemented in `apps/web`.
+ */
+export interface ToolLoaders {
+  /**
+   * Fetch all report-shape entry rows that could fall inside `window`.
+   * Implementations SHOULD pre-filter by date so adapters don't paginate
+   * the full family history into memory on every call, but the pure
+   * core functions re-apply the half-open window filter defensively.
+   */
+  loadEntries(window: ReportWindow): Promise<ReportEntryInput[]>;
+
+  /**
+   * Fetch every account's current balance as of `asOf` (ISO YYYY-MM-DD).
+   * Used by `get_net_worth`. Implementations compute this from the
+   * latest `entry_line` rollup per account at query time.
+   */
+  loadAccounts(asOf: string): Promise<ReportAccountInput[]>;
+
+  /**
+   * Directory lookup: category UUID → display name. Used so adapter
+   * output says `"Groceries"` instead of `"0193-…-cat-id"` when it
+   * reaches the model. Missing keys fall back to the raw ID string in
+   * the adapter.
+   */
+  loadCategoryNameMap(): Promise<Map<string, string>>;
+
+  /**
+   * Directory lookup: account UUID → display name. Used by
+   * `compare_periods` when the dimension is `'account'` so the model
+   * sees human-readable labels instead of raw UUIDs. Missing keys fall
+   * back to the raw ID string in the adapter.
+   */
+  loadAccountNameMap(): Promise<Map<string, string>>;
+}
+
+/**
+ * The generic tool-adapter signature. `TArgs` is the Zod-validated
+ * input (already parsed into its output type); `TOutput` is the
+ * PII-stripped, Zod-validated return shape.
+ */
+export type ToolAdapter<TArgs, TOutput> = (
+  args: TArgs,
+  loaders: ToolLoaders,
+) => Promise<TOutput>;

@@ -1,0 +1,40 @@
+{
+  "name": "@budget-tracker/ai",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typed financial-query tool adapters, PII stripper, and Anthropic SDK wrapper for Budget Tracker. Wraps the pure `@budget-tracker/core/reports` functions in Zod-validated, PII-stripped tool adapters that the model can call via `tool_use`.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./tools": {
+      "types": "./src/tools/index.ts",
+      "import": "./src/tools/index.ts"
+    },
+    "./pii-stripper": {
+      "types": "./src/pii-stripper.ts",
+      "import": "./src/pii-stripper.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@budget-tracker/core": "workspace:*",
+    "decimal.js": "^10.4.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
