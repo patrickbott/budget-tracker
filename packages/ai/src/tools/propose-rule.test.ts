@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { proposeRuleTool } from './propose-rule.ts';
 import type { ToolLoaders } from './types.ts';
@@ -18,61 +18,59 @@ function makeLoaders(overrides: Partial<ToolLoaders> = {}): ToolLoaders {
   };
 }
 
+const txnRow = (
+  id: string,
+  date: string,
+  amount: string,
+  description: string,
+) => ({
+  entryId: id,
+  date,
+  amount,
+  description,
+  categoryName: null as string | null,
+  accountName: 'Checking',
+});
+
 describe('proposeRuleTool', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 12)); // April 12, 2026
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('extracts a rule from a typical merchant transaction', async () => {
     const loaders = makeLoaders({
+      loadEntries: async () => [
+        {
+          entryId: 'e1',
+          entryDate: '2026-04-05',
+          amountSigned: '-12.9900',
+          accountId: 'acc1',
+          categoryId: 'cat-groceries',
+          isTransfer: false,
+        },
+      ],
       loadTransactions: async (params) => {
-        // First call: find the example transaction (no query)
-        // Second call: search for matches
+        // Query call: search for matches by merchant pattern
         if (params.query) {
           return {
             rows: [
-              {
-                entryId: 'e1',
-                date: '2026-04-05',
-                amount: '-12.99',
-                description: 'WHOLE FOODS MKT #1234',
-                categoryName: null,
-                accountName: 'Checking',
-              },
-              {
-                entryId: 'e2',
-                date: '2026-03-15',
-                amount: '-15.47',
-                description: 'WHOLE FOODS MKT #5678',
-                categoryName: null,
-                accountName: 'Checking',
-              },
-              {
-                entryId: 'e3',
-                date: '2026-03-02',
-                amount: '-22.11',
-                description: 'WHOLE FOODS MKT #1234',
-                categoryName: 'Groceries',
-                accountName: 'Checking',
-              },
-              {
-                entryId: 'e4',
-                date: '2026-02-20',
-                amount: '-8.99',
-                description: 'WHOLE FOODS MKT #9999',
-                categoryName: null,
-                accountName: 'Checking',
-              },
+              txnRow('e1', '2026-04-05', '-12.99', 'WHOLE FOODS MKT #1234'),
+              txnRow('e2', '2026-03-15', '-15.47', 'WHOLE FOODS MKT #5678'),
+              txnRow('e3', '2026-03-02', '-22.11', 'WHOLE FOODS MKT #1234'),
+              txnRow('e4', '2026-02-20', '-8.99', 'WHOLE FOODS MKT #9999'),
             ],
             total: 4,
           };
         }
+        // Date-filtered call: find the example by date
         return {
           rows: [
-            {
-              entryId: 'e1',
-              date: '2026-04-05',
-              amount: '-12.99',
-              description: 'WHOLE FOODS MKT #1234',
-              categoryName: null,
-              accountName: 'Checking',
-            },
+            txnRow('e1', '2026-04-05', '-12.99', 'WHOLE FOODS MKT #1234'),
           ],
           total: 1,
         };
@@ -100,7 +98,7 @@ describe('proposeRuleTool', () => {
     expect(out.rule.explanation).toContain('Groceries');
   });
 
-  it('returns low confidence when example transaction is not found', async () => {
+  it('returns low confidence when entry is not found in loadEntries', async () => {
     const loaders = makeLoaders({
       loadCategoryNameMap: async () =>
         new Map([['cat-x', 'Test Category']]),
@@ -114,37 +112,30 @@ describe('proposeRuleTool', () => {
     expect(out.rule.confidence).toBe('low');
     expect(out.rule.matching_count).toBe(0);
     expect(out.rule.conditions).toHaveLength(0);
+    expect(out.rule.explanation).toContain('Could not find');
   });
 
   it('includes amount range condition', async () => {
     const loaders = makeLoaders({
+      loadEntries: async () => [
+        {
+          entryId: 'e1',
+          entryDate: '2026-04-05',
+          amountSigned: '-50.0000',
+          accountId: 'acc1',
+          categoryId: null,
+          isTransfer: false,
+        },
+      ],
       loadTransactions: async (params) => {
-        if (!params.query) {
+        if (params.query) {
           return {
-            rows: [
-              {
-                entryId: 'e1',
-                date: '2026-04-05',
-                amount: '-50.00',
-                description: 'GYM MEMBERSHIP',
-                categoryName: null,
-                accountName: 'Checking',
-              },
-            ],
+            rows: [txnRow('e1', '2026-04-05', '-50.00', 'GYM MEMBERSHIP')],
             total: 1,
           };
         }
         return {
-          rows: [
-            {
-              entryId: 'e1',
-              date: '2026-04-05',
-              amount: '-50.00',
-              description: 'GYM MEMBERSHIP',
-              categoryName: null,
-              accountName: 'Checking',
-            },
-          ],
+          rows: [txnRow('e1', '2026-04-05', '-50.00', 'GYM MEMBERSHIP')],
           total: 1,
         };
       },
@@ -167,19 +158,20 @@ describe('proposeRuleTool', () => {
 
   it('handles very short descriptions gracefully', async () => {
     const loaders = makeLoaders({
+      loadEntries: async () => [
+        {
+          entryId: 'e1',
+          entryDate: '2026-04-05',
+          amountSigned: '-5.0000',
+          accountId: 'acc1',
+          categoryId: null,
+          isTransfer: false,
+        },
+      ],
       loadTransactions: async (params) => {
         if (!params.query) {
           return {
-            rows: [
-              {
-                entryId: 'e1',
-                date: '2026-04-05',
-                amount: '-5.00',
-                description: 'ATM',
-                categoryName: null,
-                accountName: 'Checking',
-              },
-            ],
+            rows: [txnRow('e1', '2026-04-05', '-5.00', 'ATM')],
             total: 1,
           };
         }
@@ -202,35 +194,27 @@ describe('proposeRuleTool', () => {
 
   it('strips trailing reference numbers from description pattern', async () => {
     const loaders = makeLoaders({
+      loadEntries: async () => [
+        {
+          entryId: 'e1',
+          entryDate: '2026-04-05',
+          amountSigned: '-25.0000',
+          accountId: 'acc1',
+          categoryId: null,
+          isTransfer: false,
+        },
+      ],
       loadTransactions: async (params) => {
-        if (!params.query) {
-          return {
-            rows: [
-              {
-                entryId: 'e1',
-                date: '2026-04-05',
-                amount: '-25.00',
-                description: 'AMAZON MARKETPLACE #REF-99887',
-                categoryName: null,
-                accountName: 'Checking',
-              },
-            ],
-            total: 1,
-          };
+        const row = txnRow(
+          'e1',
+          '2026-04-05',
+          '-25.00',
+          'AMAZON MARKETPLACE #REF-99887',
+        );
+        if (params.query) {
+          return { rows: [row], total: 1 };
         }
-        return {
-          rows: [
-            {
-              entryId: 'e1',
-              date: '2026-04-05',
-              amount: '-25.00',
-              description: 'AMAZON MARKETPLACE #REF-99887',
-              categoryName: null,
-              accountName: 'Checking',
-            },
-          ],
-          total: 1,
-        };
+        return { rows: [row], total: 1 };
       },
       loadCategoryNameMap: async () =>
         new Map([['cat-shop', 'Shopping']]),
@@ -249,29 +233,25 @@ describe('proposeRuleTool', () => {
 
   it('returns medium confidence with 1-3 matches', async () => {
     const loaders = makeLoaders({
+      loadEntries: async () => [
+        {
+          entryId: 'e1',
+          entryDate: '2026-04-05',
+          amountSigned: '-10.0000',
+          accountId: 'acc1',
+          categoryId: null,
+          isTransfer: false,
+        },
+      ],
       loadTransactions: async (params) => {
         const rows = [
-          {
-            entryId: 'e1',
-            date: '2026-04-05',
-            amount: '-10.00',
-            description: 'SOME STORE',
-            categoryName: null,
-            accountName: 'Checking',
-          },
-          {
-            entryId: 'e2',
-            date: '2026-03-15',
-            amount: '-12.00',
-            description: 'SOME STORE',
-            categoryName: null,
-            accountName: 'Checking',
-          },
+          txnRow('e1', '2026-04-05', '-10.00', 'SOME STORE'),
+          txnRow('e2', '2026-03-15', '-12.00', 'SOME STORE'),
         ];
-        if (!params.query) {
-          return { rows: [rows[0]!], total: 1 };
+        if (params.query) {
+          return { rows, total: 2 };
         }
-        return { rows, total: 2 };
+        return { rows: [rows[0]!], total: 1 };
       },
       loadCategoryNameMap: async () => new Map([['cat-a', 'Test']]),
     });

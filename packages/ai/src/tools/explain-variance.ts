@@ -134,14 +134,9 @@ export const explainVarianceTool: ToolAdapter<
     ? null
     : changeAmount.div(priorTotal).mul(100).toDecimalPlaces(1).toString();
 
-  // Build merchant sets for prior period
-  const priorMerchants = new Set(
-    priorFiltered.map((e) => normalizeMerchant(e.entryDate + ':' + (e as { entryId: string }).entryId)),
-  );
-  // Actually, for new-merchant detection, use the description from transactions
-  // Since we have entries, not transactions with descriptions, we'll load transactions
-  // for driver details. But loadEntries doesn't have descriptions — we need loadTransactions.
-  // Let's load current period transactions filtered by category.
+  // Load transactions (which have descriptions) to identify driver merchants.
+  // loadEntries doesn't carry descriptions, so we need loadTransactions for
+  // the new-merchant detection and driver ranking.
   const [currentTxns, priorTxns] = await Promise.all([
     loaders.loadTransactions({
       filters: {

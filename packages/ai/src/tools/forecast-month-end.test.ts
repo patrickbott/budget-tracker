@@ -236,6 +236,87 @@ describe('forecastMonthEndTool', () => {
     expect(out.categories[0]!.projected_spend).toBe('300.00');
   });
 
+  it('handles December → January year rollover correctly', async () => {
+    vi.setSystemTime(new Date(2026, 11, 15)); // December 15, 2026
+
+    const loaders = makeLoaders({
+      loadEntries: async () =>
+        Array.from({ length: 15 }, (_, i) => ({
+          entryId: `e${i}`,
+          entryDate: `2026-12-${String(i + 1).padStart(2, '0')}`,
+          amountSigned: '-10.0000',
+          accountId: 'acc1',
+          categoryId: 'cat-a',
+          isTransfer: false,
+        })),
+      loadCategoryNameMap: async () => new Map([['cat-a', 'Test']]),
+    });
+
+    const out = await forecastMonthEndTool({}, loaders);
+
+    expect(out.forecast_date).toBe('2026-12-31');
+    expect(out.days_remaining).toBe(16);
+    expect(out.categories).toHaveLength(1);
+    // 15 days of $10 = $150 actual; avg $10/day; 16 days left → $150 + 16*$10 = $310
+    expect(out.categories[0]!.projected_spend).toBe('310.00');
+  });
+
+  it('handles February with 28 days', async () => {
+    vi.setSystemTime(new Date(2026, 1, 14)); // February 14, 2026 (non-leap)
+
+    const loaders = makeLoaders({
+      loadEntries: async () =>
+        Array.from({ length: 14 }, (_, i) => ({
+          entryId: `e${i}`,
+          entryDate: `2026-02-${String(i + 1).padStart(2, '0')}`,
+          amountSigned: '-5.0000',
+          accountId: 'acc1',
+          categoryId: 'cat-b',
+          isTransfer: false,
+        })),
+      loadCategoryNameMap: async () => new Map([['cat-b', 'Short Month']]),
+    });
+
+    const out = await forecastMonthEndTool({}, loaders);
+
+    expect(out.forecast_date).toBe('2026-02-28');
+    expect(out.days_remaining).toBe(14);
+    expect(out.categories).toHaveLength(1);
+    // 14 days of $5 = $70; avg $5/day; 14 days left → $70 + 14*$5 = $140
+    expect(out.categories[0]!.projected_spend).toBe('140.00');
+  });
+
+  it('returns empty categories when entries exist only in other categories', async () => {
+    const loaders = makeLoaders({
+      loadEntries: async () => [
+        {
+          entryId: 'e1',
+          entryDate: '2026-04-05',
+          amountSigned: '-100.0000',
+          accountId: 'acc1',
+          categoryId: 'cat-other',
+          isTransfer: false,
+        },
+      ],
+      loadCategoryNameMap: async () =>
+        new Map([
+          ['cat-other', 'Other Category'],
+          ['cat-target', 'Target'],
+        ]),
+    });
+
+    // Request forecast for cat-target which has no entries
+    const out = await forecastMonthEndTool(
+      { category_id: 'cat-target' },
+      loaders,
+    );
+
+    expect(out.categories).toHaveLength(1);
+    expect(out.categories[0]!.category_id).toBe('cat-target');
+    expect(out.categories[0]!.current_spend).toBe('0.00');
+    expect(out.categories[0]!.projected_spend).toBe('0.00');
+  });
+
   it('handles no budget for a category', async () => {
     const loaders = makeLoaders({
       loadEntries: async () => [

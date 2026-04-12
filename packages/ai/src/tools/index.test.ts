@@ -37,7 +37,7 @@ describe('TOOL_REGISTRY', () => {
 describe('toAnthropicToolDefinitions', () => {
   it('returns one definition per registry entry', () => {
     const defs = toAnthropicToolDefinitions(TOOL_REGISTRY);
-    expect(defs).toHaveLength(14);
+    expect(defs).toHaveLength(Object.keys(TOOL_REGISTRY).length);
   });
 
   it('produces non-empty input_schema objects', () => {

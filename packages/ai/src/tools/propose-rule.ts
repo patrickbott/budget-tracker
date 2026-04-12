@@ -85,32 +85,66 @@ export const proposeRuleTool: ToolAdapter<
   const parsed = proposeRuleArgs.parse(args);
   const { example_entry_id, target_category_id } = parsed;
 
-  const [categoryNames] = await Promise.all([
-    loaders.loadCategoryNameMap(),
-  ]);
-
+  const categoryNames = await loaders.loadCategoryNameMap();
   const catName = categoryNames.get(target_category_id) ?? target_category_id;
 
-  // Find the example transaction
-  const exampleResult = await loaders.loadTransactions({
-    filters: {},
-    limit: 50,
+  // Step 1: Find the entry via loadEntries (searches by ID across 90 days).
+  // loadTransactions doesn't support entryId filtering, so we use loadEntries
+  // to locate the entry's date/category, then do a targeted loadTransactions
+  // call to get the description.
+  const today = new Date();
+  const lookbackStart = new Date(today);
+  lookbackStart.setDate(lookbackStart.getDate() - 90);
+  const windowStart = lookbackStart.toISOString().slice(0, 10);
+  const windowEnd = new Date(today.getTime() + 86400000)
+    .toISOString()
+    .slice(0, 10);
+
+  const entries = await loaders.loadEntries({
+    start: windowStart,
+    end: windowEnd,
   });
+  const entryMatch = entries.find((e) => e.entryId === example_entry_id);
 
-  // Find by entry ID in the results (loadTransactions doesn't support entryId filter directly)
-  const example = exampleResult.rows.find(
-    (r) => r.entryId === example_entry_id,
-  );
-
-  if (!example) {
-    // Return a low-confidence rule with minimal info
+  if (!entryMatch) {
     return proposeRuleOutput.parse(
       stripPII({
         rule: {
           conditions: [],
           actions: [{ type: 'set_category', value: target_category_id }],
           confidence: 'low',
-          explanation: `Could not find transaction ${example_entry_id}. Unable to extract a pattern.`,
+          explanation: `Could not find transaction ${example_entry_id} in the last 90 days.`,
+          matching_count: 0,
+        },
+      }),
+    );
+  }
+
+  // Step 2: Targeted loadTransactions filtered by the entry's date to get the description.
+  const txResult = await loaders.loadTransactions({
+    filters: {
+      startDate: entryMatch.entryDate,
+      endDate: new Date(
+        new Date(entryMatch.entryDate + 'T00:00:00Z').getTime() + 86400000,
+      )
+        .toISOString()
+        .slice(0, 10),
+      categoryId: entryMatch.categoryId ?? undefined,
+    },
+    limit: 50,
+  });
+
+  const example = txResult.rows.find((r) => r.entryId === example_entry_id);
+
+  if (!example) {
+    // Entry exists in entries but not in transactions — degrade gracefully
+    return proposeRuleOutput.parse(
+      stripPII({
+        rule: {
+          conditions: [],
+          actions: [{ type: 'set_category', value: target_category_id }],
+          confidence: 'low',
+          explanation: `Found entry ${example_entry_id} but could not retrieve its description.`,
           matching_count: 0,
         },
       }),

@@ -28,7 +28,6 @@ export const findSubscriptionsOutput = z.object({
       cadence: z.string(),
       category_name: z.string().nullable(),
       last_charged: z.string().nullable(),
-      months_active: z.number(),
       annual_cost: z.string(),
       status: statusEnum,
     }),
@@ -110,37 +109,24 @@ export const findSubscriptionsTool: ToolAdapter<
     })
     .map((r) => {
       const amount = new Decimal(r.amount).abs();
-      const multiplier = annualMultiplier(r.cadence);
-      const annualCost = amount.times(multiplier);
+      const annualCost = amount.times(annualMultiplier(r.cadence));
 
-      // Compute months active from first expected to now (approximate via last_seen)
-      // Since we don't have first_seen, we use a reasonable estimate
-      let monthsActive = 0;
       if (r.lastSeenDate) {
-        // Approximate: assume subscription started some time ago
-        // We'll report 0 if no data available
         const lastSeen = new Date(r.lastSeenDate + 'T00:00:00Z');
         const daysSinceLastSeen = Math.floor(
           (todayMs - lastSeen.getTime()) / (1000 * 60 * 60 * 24),
         );
-
-        // Determine status: stale if last charge was too long ago
-        const threshold = staleThresholdDays(r.cadence);
         const status: 'active' | 'stale' =
-          daysSinceLastSeen > threshold ? 'stale' : 'active';
-
-        // Estimate months active — we don't have a start date, so
-        // we'll use the number of missing dates as a lower bound signal
-        // For now just report 0 (the loader doesn't expose start date)
-        monthsActive = 0;
+          daysSinceLastSeen > staleThresholdDays(r.cadence)
+            ? 'stale'
+            : 'active';
 
         return {
           description: r.title,
           amount: amount.toFixed(2),
           cadence: r.cadence,
-          category_name: null as string | null, // no category from recurring loader
+          category_name: null as string | null,
           last_charged: r.lastSeenDate,
-          months_active: monthsActive,
           annual_cost: annualCost.toFixed(2),
           status,
         };
@@ -152,7 +138,6 @@ export const findSubscriptionsTool: ToolAdapter<
         cadence: r.cadence,
         category_name: null as string | null,
         last_charged: r.lastSeenDate,
-        months_active: 0,
         annual_cost: annualCost.toFixed(2),
         status: 'stale' as const, // never seen → stale
       };
