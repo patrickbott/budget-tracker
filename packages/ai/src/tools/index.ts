@@ -51,6 +51,11 @@ import {
   getCashflowTool,
 } from './get-cashflow.ts';
 import {
+  getGoalProgressArgs,
+  getGoalProgressOutput,
+  getGoalProgressTool,
+} from './get-goal-progress.ts';
+import {
   getNetWorthArgs,
   getNetWorthOutput,
   getNetWorthTool,
@@ -80,6 +85,11 @@ import {
   recurringStatusOutput,
   recurringStatusTool,
 } from './recurring-status.ts';
+import {
+  runReadQueryArgs,
+  runReadQueryOutput,
+  runReadQueryTool,
+} from './run-read-query.ts';
 import {
   savingOpportunitiesArgs,
   savingOpportunitiesOutput,
@@ -234,6 +244,26 @@ export const TOOL_REGISTRY = {
   } satisfies ToolRegistryEntry<
     import('./propose-rule.ts').ProposeRuleArgs,
     import('./propose-rule.ts').ProposeRuleOutput
+  >,
+  get_goal_progress: {
+    description:
+      'Progress toward savings, debt payoff, or net worth goals. Returns current vs target amount, percent complete, on-track status, and projected completion date based on linear rate from goal creation.',
+    inputSchema: getGoalProgressArgs,
+    outputSchema: getGoalProgressOutput,
+    handler: getGoalProgressTool,
+  } satisfies ToolRegistryEntry<
+    import('./get-goal-progress.ts').GetGoalProgressArgs,
+    import('./get-goal-progress.ts').GetGoalProgressOutput
+  >,
+  run_read_query: {
+    description:
+      'Execute a read-only SQL SELECT query against the family-scoped database. Results are limited to 100 rows and PII-stripped. Use for ad-hoc analysis when no other tool fits. Only SELECT statements allowed.',
+    inputSchema: runReadQueryArgs,
+    outputSchema: runReadQueryOutput,
+    handler: runReadQueryTool,
+  } satisfies ToolRegistryEntry<
+    import('./run-read-query.ts').RunReadQueryArgs,
+    import('./run-read-query.ts').RunReadQueryOutput
   >,
 } as const;
 

@@ -14,6 +14,8 @@ function makeLoaders(overrides: Partial<ToolLoaders> = {}): ToolLoaders {
     loadRecurringStatus: async () => [],
     loadCategories: async () => [],
     loadAccountsList: async () => [],
+    loadGoals: async () => [],
+    runReadQuery: async () => ({ columns: [], rows: [], totalRows: 0 }),
     ...overrides,
   };
 }

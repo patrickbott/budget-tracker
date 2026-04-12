@@ -9,6 +9,7 @@ import {
   category,
   entry,
   entryLine,
+  goal,
   recurring,
 } from "@budget-tracker/db/schema";
 import {
@@ -100,6 +101,9 @@ export function createToolLoaders(
               .where(eq(entryLine.categoryId, filters.categoryId)),
           ),
         );
+      }
+      if (filters?.entryId) {
+        conditions.push(eq(entry.id, filters.entryId));
       }
 
       // Fetch raw joined rows
@@ -321,6 +325,59 @@ export function createToolLoaders(
         accountType: r.accountType,
         visibility: r.visibility as "household" | "personal",
       }));
+    },
+
+    async loadGoals(goalId?) {
+      const conditions: ReturnType<typeof eq>[] = [
+        eq(goal.familyId, familyId),
+        eq(goal.status, "active"),
+      ];
+      if (goalId) {
+        conditions.push(eq(goal.id, goalId));
+      }
+
+      const rows = await tx
+        .select({
+          id: goal.id,
+          name: goal.name,
+          goalType: goal.goalType,
+          targetAmount: goal.targetAmount,
+          targetDate: goal.targetDate,
+          linkedAccountIds: goal.linkedAccountIds,
+          status: goal.status,
+          createdAt: goal.createdAt,
+        })
+        .from(goal)
+        .where(and(...conditions));
+
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        goalType: r.goalType,
+        targetAmount: r.targetAmount,
+        targetDate: r.targetDate
+          ? r.targetDate.toISOString().split("T")[0]!
+          : null,
+        linkedAccountIds: r.linkedAccountIds ?? [],
+        status: r.status,
+        createdAt: r.createdAt.toISOString(),
+      }));
+    },
+
+    async runReadQuery(sqlQuery) {
+      // sql.raw() + execute returns the driver's row array. Cast through
+      // unknown because the Drizzle return type is opaque for raw SQL.
+      const result = (await tx.execute(
+        sql.raw(sqlQuery),
+      )) as unknown as Array<Record<string, unknown>>;
+
+      const allRows = Array.isArray(result) ? result : [];
+      const columns =
+        allRows.length > 0 ? Object.keys(allRows[0]!) : [];
+      const totalRows = allRows.length;
+      const rows = allRows.slice(0, 100);
+
+      return { columns, rows, totalRows };
     },
   };
 }

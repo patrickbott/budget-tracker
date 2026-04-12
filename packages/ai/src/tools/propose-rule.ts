@@ -88,63 +88,24 @@ export const proposeRuleTool: ToolAdapter<
   const categoryNames = await loaders.loadCategoryNameMap();
   const catName = categoryNames.get(target_category_id) ?? target_category_id;
 
-  // Step 1: Find the entry via loadEntries (searches by ID across 90 days).
-  // loadTransactions doesn't support entryId filtering, so we use loadEntries
-  // to locate the entry's date/category, then do a targeted loadTransactions
-  // call to get the description.
-  const today = new Date();
-  const lookbackStart = new Date(today);
-  lookbackStart.setDate(lookbackStart.getDate() - 90);
-  const windowStart = lookbackStart.toISOString().slice(0, 10);
-  const windowEnd = new Date(today.getTime() + 86400000)
-    .toISOString()
-    .slice(0, 10);
-
-  const entries = await loaders.loadEntries({
-    start: windowStart,
-    end: windowEnd,
-  });
-  const entryMatch = entries.find((e) => e.entryId === example_entry_id);
-
-  if (!entryMatch) {
-    return proposeRuleOutput.parse(
-      stripPII({
-        rule: {
-          conditions: [],
-          actions: [{ type: 'set_category', value: target_category_id }],
-          confidence: 'low',
-          explanation: `Could not find transaction ${example_entry_id} in the last 90 days.`,
-          matching_count: 0,
-        },
-      }),
-    );
-  }
-
-  // Step 2: Targeted loadTransactions filtered by the entry's date to get the description.
+  // Step 1: Direct lookup by entry ID — much more reliable than the
+  // previous date+category filter approach which could miss the entry
+  // when >50 transactions shared the same date/category.
   const txResult = await loaders.loadTransactions({
-    filters: {
-      startDate: entryMatch.entryDate,
-      endDate: new Date(
-        new Date(entryMatch.entryDate + 'T00:00:00Z').getTime() + 86400000,
-      )
-        .toISOString()
-        .slice(0, 10),
-      categoryId: entryMatch.categoryId ?? undefined,
-    },
-    limit: 50,
+    filters: { entryId: example_entry_id },
+    limit: 1,
   });
 
-  const example = txResult.rows.find((r) => r.entryId === example_entry_id);
+  const example = txResult.rows[0];
 
   if (!example) {
-    // Entry exists in entries but not in transactions — degrade gracefully
     return proposeRuleOutput.parse(
       stripPII({
         rule: {
           conditions: [],
           actions: [{ type: 'set_category', value: target_category_id }],
           confidence: 'low',
-          explanation: `Found entry ${example_entry_id} but could not retrieve its description.`,
+          explanation: `Could not find transaction ${example_entry_id}.`,
           matching_count: 0,
         },
       }),
