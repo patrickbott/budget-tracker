@@ -2,18 +2,25 @@
 
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { eq, desc, asc, and } from "drizzle-orm";
+import { eq, desc, asc, and, gte, sql } from "drizzle-orm";
+import Decimal from "decimal.js";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { auth } from "@/lib/auth/server";
 import { getDb } from "@/lib/db";
 import { withFamilyContext } from "@budget-tracker/db/client";
-import { chatConversation, chatMessage } from "@budget-tracker/db/schema";
+import {
+  chatConversation,
+  chatMessage,
+  aiUsage,
+} from "@budget-tracker/db/schema";
 import {
   createAnthropicClient,
   TOOL_REGISTRY,
   toAnthropicToolDefinitions,
   stripPII,
+  checkSpendCap,
+  estimateCost,
   type ToolLoaders,
   type ToolName,
 } from "@budget-tracker/ai";
@@ -22,6 +29,9 @@ import { createToolLoaders } from "@/lib/ai/tool-loaders";
 const MAX_TOOL_ITERATIONS = 10;
 const MAX_OUTPUT_TOKENS = 4096;
 const MODEL = "claude-opus-4-6-20250414";
+/** Pricing-compatible model key (strip date suffix like -20250414). */
+const MODEL_BASE = MODEL.replace(/-\d{8}$/, "");
+const SPEND_CAP_USD = Number(process.env.AI_MONTHLY_SPEND_CAP_USD ?? "10");
 
 const SYSTEM_PROMPT = `You are a helpful personal finance assistant for a self-hosted budget tracker. You have access to tools that query the user's financial data — spending, cashflow, net worth, and period comparisons.
 
@@ -49,6 +59,11 @@ interface ChatResult {
   conversationId: string;
   assistantMessage: string;
   toolCalls?: Array<Record<string, unknown>>;
+  spendCap?: {
+    percentUsed: number;
+    warning: boolean;
+    message?: string;
+  };
 }
 
 /**
@@ -105,6 +120,70 @@ export async function sendMessage(
         const toolDefs = toAnthropicToolDefinitions(TOOL_REGISTRY);
         const loaders: ToolLoaders = createToolLoaders(tx, familyId);
 
+        // --- Cost-cap pre-check ---
+        const monthStart = new Date();
+        monthStart.setUTCDate(1);
+        monthStart.setUTCHours(0, 0, 0, 0);
+
+        const usageRows = await tx
+          .select({ costUsd: aiUsage.costUsd })
+          .from(aiUsage)
+          .where(
+            and(
+              eq(aiUsage.familyId, familyId),
+              gte(aiUsage.date, monthStart),
+            ),
+          );
+
+        let monthlyTotal = usageRows.reduce(
+          (sum, r) => sum.plus(r.costUsd),
+          new Decimal("0"),
+        );
+
+        const preCheck = checkSpendCap(
+          { costUsd: monthlyTotal.toFixed(6) },
+          SPEND_CAP_USD,
+        );
+        if (!preCheck.allowed) {
+          return {
+            conversationId: convId,
+            assistantMessage: "",
+            spendCap: {
+              percentUsed: preCheck.percentUsed,
+              warning: preCheck.warning,
+              message: preCheck.message,
+            },
+          } satisfies ChatResult;
+        }
+
+        // Helper: record usage after each Anthropic response
+        async function trackUsage(usage: { input_tokens: number; output_tokens: number }) {
+          const cost = estimateCost(MODEL_BASE, usage.input_tokens, usage.output_tokens);
+          const today = new Date();
+          today.setUTCHours(0, 0, 0, 0);
+
+          await tx
+            .insert(aiUsage)
+            .values({
+              familyId,
+              date: today,
+              model: MODEL_BASE,
+              inputTokens: String(usage.input_tokens),
+              outputTokens: String(usage.output_tokens),
+              costUsd: cost,
+            })
+            .onConflictDoUpdate({
+              target: [aiUsage.familyId, aiUsage.date, aiUsage.model],
+              set: {
+                inputTokens: sql`${aiUsage.inputTokens} + ${String(usage.input_tokens)}`,
+                outputTokens: sql`${aiUsage.outputTokens} + ${String(usage.output_tokens)}`,
+                costUsd: sql`${aiUsage.costUsd} + ${cost}`,
+              },
+            });
+
+          monthlyTotal = monthlyTotal.plus(cost);
+        }
+
         // Call Anthropic with tool-use loop
         const client = createAnthropicClient();
         let response = await client.messages.create({
@@ -115,11 +194,20 @@ export async function sendMessage(
           messages,
         });
 
+        await trackUsage(response.usage);
+
         const allToolCalls: Array<Record<string, unknown>> = [];
         let iterations = 0;
 
         while (response.stop_reason === "tool_use" && iterations < MAX_TOOL_ITERATIONS) {
           iterations++;
+
+          // Re-check spend cap before each subsequent API call
+          const loopCheck = checkSpendCap(
+            { costUsd: monthlyTotal.toFixed(6) },
+            SPEND_CAP_USD,
+          );
+          if (!loopCheck.allowed) break;
 
           // Extract tool_use blocks from the response
           const toolUseBlocks = response.content.filter(
@@ -181,6 +269,8 @@ export async function sendMessage(
             tools: toolDefs as Anthropic.Messages.Tool[],
             messages,
           });
+
+          await trackUsage(response.usage);
         }
 
         // Extract final text response
@@ -214,10 +304,23 @@ export async function sendMessage(
           })
           .where(eq(chatConversation.id, convId));
 
+        // Compute final spend-cap state for the UI
+        const postCheck = checkSpendCap(
+          { costUsd: monthlyTotal.toFixed(6) },
+          SPEND_CAP_USD,
+        );
+
         return {
           conversationId: convId,
           assistantMessage: assistantText,
           toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
+          spendCap: postCheck.warning
+            ? {
+                percentUsed: postCheck.percentUsed,
+                warning: postCheck.warning,
+                message: postCheck.message,
+              }
+            : undefined,
         } satisfies ChatResult;
       },
     );
@@ -236,60 +339,95 @@ export async function sendMessage(
 /**
  * List conversations for the current user, most recent first.
  */
-export async function getConversations(): Promise<
-  Array<{ id: string; title: string | null; updatedAt: Date }>
-> {
-  const { familyId, userId } = await getSessionContext();
-  const db = getDb();
+export async function getConversations(): Promise<{
+  success: boolean;
+  data?: Array<{ id: string; title: string | null; updatedAt: Date }>;
+  error?: string;
+}> {
+  try {
+    const { familyId, userId } = await getSessionContext();
+    const db = getDb();
 
-  return withFamilyContext(db, familyId, userId, async (tx) => {
-    return tx
-      .select({
-        id: chatConversation.id,
-        title: chatConversation.title,
-        updatedAt: chatConversation.updatedAt,
-      })
-      .from(chatConversation)
-      .where(
-        and(
-          eq(chatConversation.userId, userId),
-          eq(chatConversation.familyId, familyId),
-        ),
-      )
-      .orderBy(desc(chatConversation.updatedAt));
-  });
+    const data = await withFamilyContext(db, familyId, userId, async (tx) => {
+      return tx
+        .select({
+          id: chatConversation.id,
+          title: chatConversation.title,
+          updatedAt: chatConversation.updatedAt,
+        })
+        .from(chatConversation)
+        .where(
+          and(
+            eq(chatConversation.userId, userId),
+            eq(chatConversation.familyId, familyId),
+          ),
+        )
+        .orderBy(desc(chatConversation.updatedAt));
+    });
+
+    return { success: true, data };
+  } catch (err) {
+    console.error("[chat/getConversations]", err);
+    return { success: false, error: "Failed to load conversations" };
+  }
 }
 
 /**
  * Load messages for a conversation, oldest first.
+ * Verifies the requesting user owns the conversation.
  */
 export async function getMessages(
   targetConversationId: string,
-): Promise<
-  Array<{
+): Promise<{
+  success: boolean;
+  data?: Array<{
     id: string;
     role: string;
     content: string;
     toolCallsJson: Array<Record<string, unknown>> | null;
     createdAt: Date;
-  }>
-> {
-  const { familyId, userId } = await getSessionContext();
-  const db = getDb();
+  }>;
+  error?: string;
+}> {
+  try {
+    const { familyId, userId } = await getSessionContext();
+    const db = getDb();
 
-  return withFamilyContext(db, familyId, userId, async (tx) => {
-    return tx
-      .select({
-        id: chatMessage.id,
-        role: chatMessage.role,
-        content: chatMessage.content,
-        toolCallsJson: chatMessage.toolCallsJson,
-        createdAt: chatMessage.createdAt,
-      })
-      .from(chatMessage)
-      .where(eq(chatMessage.conversationId, targetConversationId))
-      .orderBy(asc(chatMessage.createdAt));
-  });
+    const data = await withFamilyContext(db, familyId, userId, async (tx) => {
+      // Ownership check: verify this conversation belongs to the user
+      const [conv] = await tx
+        .select({ userId: chatConversation.userId })
+        .from(chatConversation)
+        .where(
+          and(
+            eq(chatConversation.id, targetConversationId),
+            eq(chatConversation.familyId, familyId),
+          ),
+        )
+        .limit(1);
+
+      if (!conv || conv.userId !== userId) {
+        throw new Error("Conversation not found");
+      }
+
+      return tx
+        .select({
+          id: chatMessage.id,
+          role: chatMessage.role,
+          content: chatMessage.content,
+          toolCallsJson: chatMessage.toolCallsJson,
+          createdAt: chatMessage.createdAt,
+        })
+        .from(chatMessage)
+        .where(eq(chatMessage.conversationId, targetConversationId))
+        .orderBy(asc(chatMessage.createdAt));
+    });
+
+    return { success: true, data };
+  } catch (err) {
+    console.error("[chat/getMessages]", err);
+    return { success: false, error: "Failed to load messages" };
+  }
 }
 
 /**
