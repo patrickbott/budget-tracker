@@ -15,14 +15,37 @@ import { formatCurrency, formatCompact } from "@/lib/format";
 
 interface CashflowChartProps {
   /**
-   * Pre-computed monthly cashflow data from the server.
-   * Each item has: month label, income (positive string), expenses (positive string).
+   * Pre-computed cashflow rows from `core.cashflow`. `period` is the ISO
+   * bucket start (YYYY-MM-DD for all granularities — `month` buckets
+   * resolve to the first of the month in UTC).
    */
   data: Array<{
-    month: string;
+    period: string;
     income: string;
-    expenses: string;
+    expense: string;
+    net: string;
   }>;
+}
+
+const MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function periodToMonthLabel(period: string): string {
+  const [, monthStr] = period.split("-");
+  const monthIdx = Number(monthStr) - 1;
+  return MONTH_LABELS[monthIdx] ?? period;
 }
 
 export function CashflowChart({ data }: CashflowChartProps) {
@@ -42,9 +65,9 @@ export function CashflowChart({ data }: CashflowChartProps) {
   }
 
   const chartData = data.map((d) => ({
-    month: d.month,
+    month: periodToMonthLabel(d.period),
     income: new Decimal(d.income).toNumber(),
-    expenses: new Decimal(d.expenses).toNumber(),
+    expense: new Decimal(d.expense).toNumber(),
   }));
 
   return (
@@ -68,7 +91,7 @@ export function CashflowChart({ data }: CashflowChartProps) {
               ]}
             />
             <Bar dataKey="income" fill="#22c55e" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="expense" fill="#ef4444" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>
