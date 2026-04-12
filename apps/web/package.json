@@ -12,6 +12,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@budget-tracker/ai": "workspace:*",
     "@budget-tracker/core": "workspace:*",
     "@budget-tracker/db": "workspace:*",
     "@budget-tracker/jobs": "workspace:*",

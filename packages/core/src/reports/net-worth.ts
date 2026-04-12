@@ -2,8 +2,8 @@
  * `netWorth` — asset / liability / net worth across all accounts.
  *
  * Account-type classification:
- *   - Assets:      depository, investment, property, crypto, other
- *   - Liabilities: credit_card, loan
+ *   - Assets:      depository, investment, property, crypto, other_asset
+ *   - Liabilities: credit_card, loan, other_liability
  *
  * Liability balances are stored as negative numbers elsewhere in the app
  * (per the signed convention). This function surfaces `liability` as a
@@ -20,6 +20,7 @@ import type { ReportAccountInput } from './types.ts';
 const LIABILITY_TYPES: ReadonlySet<ReportAccountInput['accountType']> = new Set([
   'credit_card',
   'loan',
+  'other_liability',
 ]);
 
 export function netWorth(input: {

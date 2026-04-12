@@ -84,6 +84,40 @@ describe('netWorth', () => {
     expect(result.net).toBe('4250.00');
   });
 
+  it('other_asset counts as an asset', () => {
+    const accounts: ReportAccountInput[] = [
+      { accountId: 'a1', accountType: 'depository', balance: '5000.0000' },
+      { accountId: 'a2', accountType: 'other_asset', balance: '12000.0000' },
+    ];
+
+    const result = netWorth({ accounts });
+
+    expect(result.asset).toBe('17000.00');
+    expect(result.liability).toBe('0.00');
+    expect(result.net).toBe('17000.00');
+    expect(result.byAccountType).toEqual({
+      depository: '5000.00',
+      other_asset: '12000.00',
+    });
+  });
+
+  it('other_liability counts as a liability', () => {
+    const accounts: ReportAccountInput[] = [
+      { accountId: 'a1', accountType: 'depository', balance: '10000.0000' },
+      { accountId: 'a2', accountType: 'other_liability', balance: '-3000.0000' },
+    ];
+
+    const result = netWorth({ accounts });
+
+    expect(result.asset).toBe('10000.00');
+    expect(result.liability).toBe('3000.00');
+    expect(result.net).toBe('7000.00');
+    expect(result.byAccountType).toEqual({
+      depository: '10000.00',
+      other_liability: '-3000.00',
+    });
+  });
+
   it('flips negative liability balances to positive in the liability total', () => {
     // Two credit cards at -$500 and -$750 → liability = $1250
     const accounts: ReportAccountInput[] = [

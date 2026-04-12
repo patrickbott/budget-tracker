@@ -5,23 +5,13 @@ import { account } from "@budget-tracker/db/schema";
 import type { ReportAccountInput } from "@budget-tracker/core/reports";
 
 /**
- * Fetch open (non-archived/non-closed) accounts for a family in the shape
+ * Fetch open (non-closed) accounts for a family in the shape
  * `core.netWorth` consumes. Closed accounts are excluded to match the
  * existing NetWorthCard semantics.
  *
- * Enum mismatch (flagged for a follow-up core fix): the DB's
- * `account_type` enum includes `other_asset` and `other_liability`, but
- * `@budget-tracker/core/reports`'s `ReportAccountInput['accountType']`
- * union only has `'other'`. We map:
- *   - `other_asset`     → `'other'`   (core treats `other` as an asset)
- *   - `other_liability` → `'loan'`    (core's LIABILITY_TYPES only has
- *                                      `credit_card` and `loan`, so we
- *                                      route to the closest liability
- *                                      bucket to keep the asset/liability
- *                                      split correct in net-worth math)
- *
- * TODO(followup): extend `ReportAccountInput['accountType']` in core to
- * include `other_asset` and `other_liability`, then drop the mapping.
+ * The DB enum values (`other_asset`, `other_liability`) now match the
+ * core `ReportAccountInput['accountType']` union directly — no mapping
+ * hack needed.
  */
 export async function loadAccountsForNetWorth(
   tx: DatabaseTx,
@@ -40,15 +30,7 @@ export async function loadAccountsForNetWorth(
 
   return rows.map((r) => ({
     accountId: r.id,
-    accountType: mapAccountType(r.accountType),
+    accountType: r.accountType as ReportAccountInput["accountType"],
     balance: r.balance,
   }));
-}
-
-function mapAccountType(
-  dbType: string,
-): ReportAccountInput["accountType"] {
-  if (dbType === "other_asset") return "other";
-  if (dbType === "other_liability") return "loan";
-  return dbType as ReportAccountInput["accountType"];
 }
