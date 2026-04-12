@@ -3,12 +3,17 @@ import { describe, expect, it } from 'vitest';
 import { TOOL_REGISTRY, toAnthropicToolDefinitions } from './index.ts';
 
 describe('TOOL_REGISTRY', () => {
-  it('exposes the four Phase 3 R2 tools by name', () => {
+  it('exposes all nine Phase 3 R2+R3 tools by name', () => {
     expect(Object.keys(TOOL_REGISTRY).sort()).toEqual([
+      'budget_status',
       'compare_periods',
+      'find_transactions',
       'get_cashflow',
       'get_net_worth',
       'get_spending_by_category',
+      'list_accounts',
+      'list_categories',
+      'recurring_status',
     ]);
   });
 
@@ -27,7 +32,7 @@ describe('TOOL_REGISTRY', () => {
 describe('toAnthropicToolDefinitions', () => {
   it('returns one definition per registry entry', () => {
     const defs = toAnthropicToolDefinitions(TOOL_REGISTRY);
-    expect(defs).toHaveLength(4);
+    expect(defs).toHaveLength(9);
   });
 
   it('produces non-empty input_schema objects', () => {
@@ -69,5 +74,30 @@ describe('toAnthropicToolDefinitions', () => {
       'window_b_end',
       'window_b_start',
     ]);
+
+    const findTx = byName.get('find_transactions');
+    expect(findTx).toBeDefined();
+    const findTxProps = (findTx!.input_schema as { properties: object })
+      .properties;
+    expect(Object.keys(findTxProps).sort()).toEqual([
+      'filters',
+      'limit',
+      'query',
+    ]);
+
+    const budgetStatus = byName.get('budget_status');
+    expect(budgetStatus).toBeDefined();
+    const budgetProps = (budgetStatus!.input_schema as { properties: object })
+      .properties;
+    expect(Object.keys(budgetProps).sort()).toEqual([
+      'period_end',
+      'period_start',
+    ]);
+
+    // recurring_status, list_categories, list_accounts take no args
+    for (const toolName of ['recurring_status', 'list_categories', 'list_accounts']) {
+      const tool = byName.get(toolName);
+      expect(tool, `${toolName} should be registered`).toBeDefined();
+    }
   });
 });

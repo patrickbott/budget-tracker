@@ -9,6 +9,11 @@ function makeLoaders(overrides: Partial<ToolLoaders> = {}): ToolLoaders {
     loadAccounts: async () => [],
     loadCategoryNameMap: async () => new Map(),
     loadAccountNameMap: async () => new Map(),
+    loadTransactions: async () => ({ rows: [], total: 0 }),
+    loadBudgetStatus: async () => [],
+    loadRecurringStatus: async () => [],
+    loadCategories: async () => [],
+    loadAccountsList: async () => [],
     ...overrides,
   };
 }

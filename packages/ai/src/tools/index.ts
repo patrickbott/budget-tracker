@@ -16,10 +16,20 @@
 import { z, type ZodType } from 'zod';
 
 import {
+  budgetStatusArgs,
+  budgetStatusOutput,
+  budgetStatusTool,
+} from './budget-status.ts';
+import {
   comparePeriodsArgs,
   comparePeriodsOutput,
   comparePeriodsTool,
 } from './compare-periods.ts';
+import {
+  findTransactionsArgs,
+  findTransactionsOutput,
+  findTransactionsTool,
+} from './find-transactions.ts';
 import {
   getCashflowArgs,
   getCashflowOutput,
@@ -35,6 +45,21 @@ import {
   getSpendingByCategoryOutput,
   getSpendingByCategoryTool,
 } from './get-spending-by-category.ts';
+import {
+  listAccountsArgs,
+  listAccountsOutput,
+  listAccountsTool,
+} from './list-accounts.ts';
+import {
+  listCategoriesArgs,
+  listCategoriesOutput,
+  listCategoriesTool,
+} from './list-categories.ts';
+import {
+  recurringStatusArgs,
+  recurringStatusOutput,
+  recurringStatusTool,
+} from './recurring-status.ts';
 import type { ToolAdapter } from './types.ts';
 
 export interface ToolRegistryEntry<TArgs = unknown, TOutput = unknown> {
@@ -84,6 +109,56 @@ export const TOOL_REGISTRY = {
   } satisfies ToolRegistryEntry<
     import('./compare-periods.ts').ComparePeriodsArgs,
     import('./compare-periods.ts').ComparePeriodsOutput
+  >,
+  find_transactions: {
+    description:
+      'Search transactions by text query and/or structured filters (account, category, date range, amount range). Hard-limited to 50 results.',
+    inputSchema: findTransactionsArgs,
+    outputSchema: findTransactionsOutput,
+    handler: findTransactionsTool,
+  } satisfies ToolRegistryEntry<
+    import('./find-transactions.ts').FindTransactionsArgs,
+    import('./find-transactions.ts').FindTransactionsOutput
+  >,
+  budget_status: {
+    description:
+      'Per-category budget vs actual spend for a date range. Returns budget mode, amounts, remaining balance, percent used, and a traffic-light status (on_track / warning / over_budget).',
+    inputSchema: budgetStatusArgs,
+    outputSchema: budgetStatusOutput,
+    handler: budgetStatusTool,
+  } satisfies ToolRegistryEntry<
+    import('./budget-status.ts').BudgetStatusArgs,
+    import('./budget-status.ts').BudgetStatusOutput
+  >,
+  recurring_status: {
+    description:
+      'All active recurring transaction series with expected/missing date analysis. Status: on_time (no missing), late (one missing), missing (multiple missing).',
+    inputSchema: recurringStatusArgs,
+    outputSchema: recurringStatusOutput,
+    handler: recurringStatusTool,
+  } satisfies ToolRegistryEntry<
+    import('./recurring-status.ts').RecurringStatusArgs,
+    import('./recurring-status.ts').RecurringStatusOutput
+  >,
+  list_categories: {
+    description:
+      'Directory lookup of all categories for the family. Returns ID, name, and parent name. Use to resolve natural-language category names to IDs before calling other tools.',
+    inputSchema: listCategoriesArgs,
+    outputSchema: listCategoriesOutput,
+    handler: listCategoriesTool,
+  } satisfies ToolRegistryEntry<
+    import('./list-categories.ts').ListCategoriesArgs,
+    import('./list-categories.ts').ListCategoriesOutput
+  >,
+  list_accounts: {
+    description:
+      'Directory lookup of all accounts for the family. Returns ID, name, account type, and visibility. Use to resolve natural-language account names to IDs before calling other tools.',
+    inputSchema: listAccountsArgs,
+    outputSchema: listAccountsOutput,
+    handler: listAccountsTool,
+  } satisfies ToolRegistryEntry<
+    import('./list-accounts.ts').ListAccountsArgs,
+    import('./list-accounts.ts').ListAccountsOutput
   >,
 } as const;
 
