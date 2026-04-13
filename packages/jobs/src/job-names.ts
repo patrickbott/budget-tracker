@@ -6,6 +6,7 @@ export const JOB_NAMES = {
   PRUNE_SYNC_RUNS: 'prune-sync-runs',
   AUTO_CATEGORIZE: 'auto-categorize',
   WEEKLY_INSIGHTS: 'weekly-insights',
+  COACHING: 'coaching',
 } as const;
 
 export const SyncConnectionPayloadSchema = z.object({

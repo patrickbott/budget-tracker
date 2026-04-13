@@ -171,3 +171,20 @@ export const insightPeriodEnum = pgEnum('insight_period', ['weekly', 'monthly'])
 /** Role on a single chat message — matches Anthropic's message role convention
  *  plus a `tool` pseudo-role for tool_use / tool_result display. */
 export const chatRoleEnum = pgEnum('chat_role', ['user', 'assistant', 'tool']);
+
+// --- Coaching alerts --------------------------------------------------------
+
+/** Type discriminator for proactive coaching alerts. */
+export const coachingAlertTypeEnum = pgEnum('coaching_alert_type', [
+  'budget_pace',
+  'recurring_late',
+  'goal_risk',
+  'general',
+]);
+
+/** Severity level for coaching alerts — drives icon/color in the dashboard. */
+export const coachingAlertSeverityEnum = pgEnum('coaching_alert_severity', [
+  'info',
+  'warning',
+  'critical',
+]);

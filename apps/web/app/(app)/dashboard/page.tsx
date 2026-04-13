@@ -8,6 +8,7 @@ import { withFamilyContext } from "@budget-tracker/db/client";
 import {
   account,
   budget,
+  coachingAlert,
   entry,
   entryLine,
   category,
@@ -32,6 +33,7 @@ import { CashflowChart } from "./_components/cashflow-chart";
 import { RecentTransactions } from "./_components/recent-transactions";
 import { BudgetStatusWidget } from "./_components/budget-status-widget";
 import { SpendingByCategoryDonut } from "./_components/spending-by-category-donut";
+import { CoachingAlertsWidget } from "./_components/coaching-alerts-widget";
 
 function isoDate(d: Date): string {
   return d.toISOString().split("T")[0]!;
@@ -78,6 +80,7 @@ export default async function DashboardPage() {
     spendingDisplayRows,
     netWorthResult,
     budgetItems,
+    coachingAlerts,
   } = await withFamilyContext(db, familyId, session.user.id, async (tx) => {
     const accts = await tx.select().from(account);
 
@@ -169,6 +172,19 @@ export default async function DashboardPage() {
       });
     }
 
+    // Active coaching alerts (non-dismissed, non-expired).
+    const activeAlerts = await tx
+      .select()
+      .from(coachingAlert)
+      .where(
+        and(
+          eq(coachingAlert.dismissed, false),
+          gte(coachingAlert.expiresAt, now),
+        ),
+      )
+      .orderBy(desc(coachingAlert.generatedAt))
+      .limit(5);
+
     return {
       accounts: accts,
       recentEntries: recent,
@@ -176,12 +192,15 @@ export default async function DashboardPage() {
       spendingDisplayRows: spendingDisplay,
       netWorthResult: netWorthCore,
       budgetItems: budgetStatusItems,
+      coachingAlerts: activeAlerts,
     };
   });
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+
+      <CoachingAlertsWidget alerts={coachingAlerts} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left column */}
