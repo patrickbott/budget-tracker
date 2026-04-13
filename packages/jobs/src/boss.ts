@@ -10,6 +10,7 @@ import { syncAllFamilies } from './workers/sync-family.ts';
 import { pruneSyncRuns } from './workers/prune-sync-runs.ts';
 import { autoCategorize } from './workers/auto-categorize.ts';
 import { generateWeeklyInsights } from './workers/weekly-insights.ts';
+import { generateCoachingAlerts } from './workers/coaching.ts';
 
 // Re-export factory from the split file.
 export { createBoss } from './boss-factory.ts';
@@ -54,6 +55,11 @@ export function registerJobs(boss: PgBoss): void {
   boss.work(JOB_NAMES.WEEKLY_INSIGHTS, async () => {
     await generateWeeklyInsights();
   });
+
+  // Nightly coaching alerts (budget pace, recurring late, etc.).
+  boss.work(JOB_NAMES.COACHING, async () => {
+    await generateCoachingAlerts();
+  });
 }
 
 /**
@@ -73,4 +79,7 @@ export async function registerSchedules(boss: PgBoss): Promise<void> {
 
   // Sunday at 06:00 UTC: generate weekly insights for all families.
   await boss.schedule(JOB_NAMES.WEEKLY_INSIGHTS, '0 6 * * 0');
+
+  // Nightly at 23:00 UTC: generate coaching alerts for all families.
+  await boss.schedule(JOB_NAMES.COACHING, '0 23 * * *');
 }

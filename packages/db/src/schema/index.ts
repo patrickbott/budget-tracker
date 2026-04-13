@@ -54,3 +54,4 @@ export * from './transfer-candidate.ts';
 export * from './insight.ts';
 export * from './ai-usage.ts';
 export * from './chat.ts';
+export * from './coaching-alert.ts';
