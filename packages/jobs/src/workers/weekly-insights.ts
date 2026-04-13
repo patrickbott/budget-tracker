@@ -5,6 +5,8 @@ import {
   aiUsage,
   family,
   insight,
+  membership,
+  user,
 } from '@budget-tracker/db/schema';
 import { createDb } from '@budget-tracker/db/client';
 import {
@@ -17,6 +19,7 @@ import {
 } from '@budget-tracker/ai';
 
 import { createToolLoadersForJob } from '../lib/tool-loaders.ts';
+import { sendInsightEmail } from '../lib/email.ts';
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 const COST_MODEL = 'claude-haiku-4-5';
@@ -70,6 +73,8 @@ function getWeekBounds(): { mondayIso: string; sundayIso: string; monday: Date; 
 export interface WeeklyInsightsResult {
   familiesProcessed: number;
   familiesSkipped: number;
+  emailsSent: number;
+  emailsFailed: number;
   errors: string[];
 }
 
@@ -88,6 +93,8 @@ export async function generateWeeklyInsights(): Promise<WeeklyInsightsResult> {
 
   let familiesProcessed = 0;
   let familiesSkipped = 0;
+  let emailsSent = 0;
+  let emailsFailed = 0;
   const errors: string[] = [];
 
   // Discover all families (system-level, bypasses RLS)
@@ -296,7 +303,7 @@ export async function generateWeeklyInsights(): Promise<WeeklyInsightsResult> {
           .toFixed(6);
 
         // Insert insight row
-        await tx.insert(insight).values({
+        const [insertedInsight] = await tx.insert(insight).values({
           familyId: fam.id,
           period: 'weekly',
           periodStart: monday,
@@ -305,7 +312,41 @@ export async function generateWeeklyInsights(): Promise<WeeklyInsightsResult> {
           toolCallsJson: allToolCalls.length > 0 ? allToolCalls : null,
           tokensUsed: String(totalInputTokens + totalOutputTokens),
           costUsd: totalCostUsd,
-        });
+        }).returning({ id: insight.id });
+
+        // Send email to family members
+        const members = await tx
+          .select({ email: user.email })
+          .from(membership)
+          .innerJoin(user, eq(user.id, membership.userId))
+          .where(eq(membership.organizationId, fam.id));
+
+        const memberEmails = members.map((m) => m.email);
+        if (memberEmails.length > 0) {
+          const emailResult = await sendInsightEmail({
+            to: memberEmails,
+            subject: `Weekly Spending Report — ${mondayIso} to ${sundayIso}`,
+            markdownBody,
+          });
+
+          if (emailResult.sent) {
+            emailsSent++;
+            if (insertedInsight) {
+              await tx
+                .update(insight)
+                .set({ emailedAt: new Date() })
+                .where(eq(insight.id, insertedInsight.id));
+            }
+            console.info(
+              `[weekly-insights] Email sent for family ${fam.id} (messageId: ${emailResult.messageId})`,
+            );
+          } else {
+            emailsFailed++;
+            console.warn(
+              `[weekly-insights] Email failed for family ${fam.id}: ${emailResult.error}`,
+            );
+          }
+        }
 
         // Upsert ai_usage
         const today = new Date().toISOString().split('T')[0]!;
@@ -340,5 +381,5 @@ export async function generateWeeklyInsights(): Promise<WeeklyInsightsResult> {
     }
   }
 
-  return { familiesProcessed, familiesSkipped, errors };
+  return { familiesProcessed, familiesSkipped, emailsSent, emailsFailed, errors };
 }
