@@ -428,10 +428,12 @@ export function createToolLoadersForJob(
       }));
     },
 
-    // NOTE: After Instance A merges (adding loadGoals + runReadQuery to
-    // the ToolLoaders interface), rebase this branch and add:
-    //   loadGoals: async () => [],
-    //   runReadQuery: async () => { throw new Error('Not supported in batch context'); },
+    // Stubs for Instance A's new ToolLoaders methods — not needed by
+    // batch jobs (insights uses the existing 14 tools, not goal/SQL tools).
+    loadGoals: async () => [],
+    runReadQuery: async () => {
+      throw new Error('runReadQuery is not supported in batch job context');
+    },
   };
 }
 
