@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { TOOL_REGISTRY, toAnthropicToolDefinitions } from './index.ts';
 
 describe('TOOL_REGISTRY', () => {
-  it('exposes all fourteen Phase 3 R2–R4 tools by name', () => {
+  it('exposes all sixteen Phase 3 R2–R5 tools by name', () => {
     expect(Object.keys(TOOL_REGISTRY).sort()).toEqual([
       'budget_status',
       'compare_periods',
@@ -12,12 +12,14 @@ describe('TOOL_REGISTRY', () => {
       'find_transactions',
       'forecast_month_end',
       'get_cashflow',
+      'get_goal_progress',
       'get_net_worth',
       'get_spending_by_category',
       'list_accounts',
       'list_categories',
       'propose_rule',
       'recurring_status',
+      'run_read_query',
       'saving_opportunities',
     ]);
   });

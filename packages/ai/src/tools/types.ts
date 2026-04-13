@@ -73,6 +73,7 @@ export interface ToolLoaders {
       endDate?: string;
       minAmount?: string;
       maxAmount?: string;
+      entryId?: string;
     };
     limit: number;
   }): Promise<{
@@ -145,6 +146,34 @@ export interface ToolLoaders {
       visibility: 'household' | 'personal';
     }>
   >;
+
+  /**
+   * Fetch goals for the family, optionally filtered by goal ID.
+   * Returns goal metadata + linked account IDs for progress computation.
+   */
+  loadGoals(goalId?: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      goalType: 'savings' | 'debt_payoff' | 'net_worth_target';
+      targetAmount: string;
+      targetDate: string | null;
+      linkedAccountIds: string[];
+      status: string;
+      createdAt: string;
+    }>
+  >;
+
+  /**
+   * Execute a validated read-only SQL query within the RLS-scoped
+   * transaction. Callers MUST validate the SQL is safe before calling.
+   * Returns raw rows as key-value pairs.
+   */
+  runReadQuery(sql: string): Promise<{
+    columns: string[];
+    rows: Array<Record<string, unknown>>;
+    totalRows: number;
+  }>;
 }
 
 /**

@@ -14,6 +14,8 @@ function makeLoaders(overrides: Partial<ToolLoaders> = {}): ToolLoaders {
     loadRecurringStatus: async () => [],
     loadCategories: async () => [],
     loadAccountsList: async () => [],
+    loadGoals: async () => [],
+    runReadQuery: async () => ({ columns: [], rows: [], totalRows: 0 }),
     ...overrides,
   };
 }
@@ -44,16 +46,6 @@ describe('proposeRuleTool', () => {
 
   it('extracts a rule from a typical merchant transaction', async () => {
     const loaders = makeLoaders({
-      loadEntries: async () => [
-        {
-          entryId: 'e1',
-          entryDate: '2026-04-05',
-          amountSigned: '-12.9900',
-          accountId: 'acc1',
-          categoryId: 'cat-groceries',
-          isTransfer: false,
-        },
-      ],
       loadTransactions: async (params) => {
         // Query call: search for matches by merchant pattern
         if (params.query) {
@@ -67,13 +59,16 @@ describe('proposeRuleTool', () => {
             total: 4,
           };
         }
-        // Date-filtered call: find the example by date
-        return {
-          rows: [
-            txnRow('e1', '2026-04-05', '-12.99', 'WHOLE FOODS MKT #1234'),
-          ],
-          total: 1,
-        };
+        // entryId-filtered call: find the example directly
+        if (params.filters?.entryId === 'e1') {
+          return {
+            rows: [
+              txnRow('e1', '2026-04-05', '-12.99', 'WHOLE FOODS MKT #1234'),
+            ],
+            total: 1,
+          };
+        }
+        return { rows: [], total: 0 };
       },
       loadCategoryNameMap: async () =>
         new Map([['cat-groceries', 'Groceries']]),
@@ -98,7 +93,7 @@ describe('proposeRuleTool', () => {
     expect(out.rule.explanation).toContain('Groceries');
   });
 
-  it('returns low confidence when entry is not found in loadEntries', async () => {
+  it('returns low confidence when entry is not found', async () => {
     const loaders = makeLoaders({
       loadCategoryNameMap: async () =>
         new Map([['cat-x', 'Test Category']]),
@@ -117,16 +112,6 @@ describe('proposeRuleTool', () => {
 
   it('includes amount range condition', async () => {
     const loaders = makeLoaders({
-      loadEntries: async () => [
-        {
-          entryId: 'e1',
-          entryDate: '2026-04-05',
-          amountSigned: '-50.0000',
-          accountId: 'acc1',
-          categoryId: null,
-          isTransfer: false,
-        },
-      ],
       loadTransactions: async (params) => {
         if (params.query) {
           return {
@@ -134,10 +119,13 @@ describe('proposeRuleTool', () => {
             total: 1,
           };
         }
-        return {
-          rows: [txnRow('e1', '2026-04-05', '-50.00', 'GYM MEMBERSHIP')],
-          total: 1,
-        };
+        if (params.filters?.entryId === 'e1') {
+          return {
+            rows: [txnRow('e1', '2026-04-05', '-50.00', 'GYM MEMBERSHIP')],
+            total: 1,
+          };
+        }
+        return { rows: [], total: 0 };
       },
       loadCategoryNameMap: async () => new Map([['cat-fit', 'Fitness']]),
     });
@@ -158,22 +146,15 @@ describe('proposeRuleTool', () => {
 
   it('handles very short descriptions gracefully', async () => {
     const loaders = makeLoaders({
-      loadEntries: async () => [
-        {
-          entryId: 'e1',
-          entryDate: '2026-04-05',
-          amountSigned: '-5.0000',
-          accountId: 'acc1',
-          categoryId: null,
-          isTransfer: false,
-        },
-      ],
       loadTransactions: async (params) => {
-        if (!params.query) {
+        if (params.filters?.entryId === 'e1') {
           return {
             rows: [txnRow('e1', '2026-04-05', '-5.00', 'ATM')],
             total: 1,
           };
+        }
+        if (params.query) {
+          return { rows: [], total: 0 };
         }
         return { rows: [], total: 0 };
       },
@@ -193,28 +174,22 @@ describe('proposeRuleTool', () => {
   });
 
   it('strips trailing reference numbers from description pattern', async () => {
+    const row = txnRow(
+      'e1',
+      '2026-04-05',
+      '-25.00',
+      'AMAZON MARKETPLACE #REF-99887',
+    );
+
     const loaders = makeLoaders({
-      loadEntries: async () => [
-        {
-          entryId: 'e1',
-          entryDate: '2026-04-05',
-          amountSigned: '-25.0000',
-          accountId: 'acc1',
-          categoryId: null,
-          isTransfer: false,
-        },
-      ],
       loadTransactions: async (params) => {
-        const row = txnRow(
-          'e1',
-          '2026-04-05',
-          '-25.00',
-          'AMAZON MARKETPLACE #REF-99887',
-        );
+        if (params.filters?.entryId === 'e1') {
+          return { rows: [row], total: 1 };
+        }
         if (params.query) {
           return { rows: [row], total: 1 };
         }
-        return { rows: [row], total: 1 };
+        return { rows: [], total: 0 };
       },
       loadCategoryNameMap: async () =>
         new Map([['cat-shop', 'Shopping']]),
@@ -232,26 +207,20 @@ describe('proposeRuleTool', () => {
   });
 
   it('returns medium confidence with 1-3 matches', async () => {
+    const rows = [
+      txnRow('e1', '2026-04-05', '-10.00', 'SOME STORE'),
+      txnRow('e2', '2026-03-15', '-12.00', 'SOME STORE'),
+    ];
+
     const loaders = makeLoaders({
-      loadEntries: async () => [
-        {
-          entryId: 'e1',
-          entryDate: '2026-04-05',
-          amountSigned: '-10.0000',
-          accountId: 'acc1',
-          categoryId: null,
-          isTransfer: false,
-        },
-      ],
       loadTransactions: async (params) => {
-        const rows = [
-          txnRow('e1', '2026-04-05', '-10.00', 'SOME STORE'),
-          txnRow('e2', '2026-03-15', '-12.00', 'SOME STORE'),
-        ];
+        if (params.filters?.entryId === 'e1') {
+          return { rows: [rows[0]!], total: 1 };
+        }
         if (params.query) {
           return { rows, total: 2 };
         }
-        return { rows: [rows[0]!], total: 1 };
+        return { rows: [], total: 0 };
       },
       loadCategoryNameMap: async () => new Map([['cat-a', 'Test']]),
     });
@@ -263,5 +232,70 @@ describe('proposeRuleTool', () => {
 
     expect(out.rule.confidence).toBe('medium');
     expect(out.rule.matching_count).toBe(2);
+  });
+
+  it('uses entryId filter for direct lookup (not date+category)', async () => {
+    const loadTransactions = vi.fn(async (params: Parameters<ToolLoaders['loadTransactions']>[0]) => {
+      if (params.filters?.entryId === 'e1') {
+        return {
+          rows: [txnRow('e1', '2026-04-05', '-20.00', 'COFFEE SHOP')],
+          total: 1,
+        };
+      }
+      if (params.query) {
+        return {
+          rows: [txnRow('e1', '2026-04-05', '-20.00', 'COFFEE SHOP')],
+          total: 1,
+        };
+      }
+      return { rows: [], total: 0 };
+    });
+
+    const loaders = makeLoaders({
+      loadTransactions,
+      loadCategoryNameMap: async () => new Map([['cat-a', 'Dining']]),
+    });
+
+    await proposeRuleTool(
+      { example_entry_id: 'e1', target_category_id: 'cat-a' },
+      loaders,
+    );
+
+    // First call should use entryId filter, not date+category
+    const firstCall = loadTransactions.mock.calls[0]![0];
+    expect(firstCall.filters?.entryId).toBe('e1');
+    expect(firstCall.limit).toBe(1);
+    // Should NOT have startDate/endDate/categoryId filters
+    expect(firstCall.filters?.startDate).toBeUndefined();
+    expect(firstCall.filters?.endDate).toBeUndefined();
+    expect(firstCall.filters?.categoryId).toBeUndefined();
+  });
+
+  it('no longer calls loadEntries (uses loadTransactions with entryId)', async () => {
+    const loadEntries = vi.fn(async () => []);
+
+    const loaders = makeLoaders({
+      loadEntries,
+      loadTransactions: async (params) => {
+        if (params.filters?.entryId === 'e1') {
+          return {
+            rows: [txnRow('e1', '2026-04-05', '-10.00', 'SHOP')],
+            total: 1,
+          };
+        }
+        if (params.query) {
+          return { rows: [], total: 0 };
+        }
+        return { rows: [], total: 0 };
+      },
+      loadCategoryNameMap: async () => new Map([['cat-a', 'Test']]),
+    });
+
+    await proposeRuleTool(
+      { example_entry_id: 'e1', target_category_id: 'cat-a' },
+      loaders,
+    );
+
+    expect(loadEntries).not.toHaveBeenCalled();
   });
 });
