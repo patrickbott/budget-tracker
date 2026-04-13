@@ -25,7 +25,9 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@budget-tracker/db/schema', () => ({
   aiUsage: { familyId: 'u.fid', date: 'u.d', model: 'u.m', costUsd: 'u.c', inputTokens: 'u.it', outputTokens: 'u.ot' },
   family: { id: 'f.id' },
-  insight: { id: 'i.id', familyId: 'i.fid', period: 'i.p', periodStart: 'i.ps' },
+  insight: { id: 'i.id', familyId: 'i.fid', period: 'i.p', periodStart: 'i.ps', emailedAt: 'i.ea' },
+  membership: { userId: 'm.uid', organizationId: 'm.oid' },
+  user: { id: 'usr.id', email: 'usr.email' },
 }));
 
 const mockMessagesCreate = vi.fn();
@@ -55,6 +57,11 @@ vi.mock('../lib/tool-loaders.ts', () => ({
   createToolLoadersForJob: vi.fn(() => ({})),
 }));
 
+const mockSendInsightEmail = vi.fn();
+vi.mock('../lib/email.ts', () => ({
+  sendInsightEmail: (...args: unknown[]) => mockSendInsightEmail(...args),
+}));
+
 // --- Helpers ---
 
 const FAMILY_ID = '00000000-0000-0000-0000-000000000001';
@@ -67,7 +74,9 @@ const FAMILY_ID = '00000000-0000-0000-0000-000000000001';
 function makeMockDb(opts: {
   families: Array<{ id: string }>;
   perFamilyResults: Record<string, unknown[][]>;
+  memberEmails?: string[];
   onInsight?: (vals: unknown) => void;
+  onUpdate?: (set: unknown) => void;
 }) {
   let txCount = 0;
 
@@ -92,20 +101,38 @@ function makeMockDb(opts: {
       let idx = 0;
       const pop = async () => results[idx++] ?? [];
 
+      const emails = (opts.memberEmails ?? []).map((e) => ({ email: e }));
+
       const onConflict = vi.fn().mockResolvedValue(undefined);
       const tx = {
         execute: vi.fn().mockResolvedValue(undefined),
         select: vi.fn(() => ({
           from: vi.fn(() => ({
+            // Standard pattern: .from().where().limit() (dedup, usage)
             where: vi.fn((..._args: unknown[]) => ({
               limit: vi.fn(pop),
+            })),
+            // Membership join pattern: .from(membership).innerJoin().where()
+            innerJoin: vi.fn(() => ({
+              where: vi.fn(async () => emails),
             })),
           })),
         })),
         insert: vi.fn(() => ({
           values: vi.fn((vals: unknown) => {
             opts.onInsight?.(vals);
-            return { onConflictDoUpdate: onConflict };
+            return {
+              returning: vi.fn(() => [{ id: 'mock-insight-id' }]),
+              onConflictDoUpdate: onConflict,
+            };
+          }),
+        })),
+        update: vi.fn(() => ({
+          set: vi.fn((setVals: unknown) => {
+            opts.onUpdate?.(setVals);
+            return {
+              where: vi.fn().mockResolvedValue(undefined),
+            };
           }),
         })),
       };
@@ -120,6 +147,7 @@ describe('generateWeeklyInsights', () => {
     vi.resetModules();
     process.env.DATABASE_URL = 'postgres://test@localhost/test';
     process.env.ANTHROPIC_API_KEY = 'test-key';
+    mockSendInsightEmail.mockResolvedValue({ sent: false, error: 'RESEND_API_KEY not configured' });
   });
 
   it('generates a report and inserts an insight row on happy path', async () => {
@@ -282,5 +310,139 @@ describe('generateWeeklyInsights', () => {
     expect(result.familiesProcessed).toBe(1);
     const row = insightInserts.find((v: any) => v.period === 'weekly') as any;
     expect(row.markdownBody).toBe('_No activity this week._');
+  });
+
+  it('sends email after insight is saved when members exist', async () => {
+    _mockDb = makeMockDb({
+      families: [{ id: FAMILY_ID }],
+      perFamilyResults: {
+        [FAMILY_ID]: [
+          [],
+          [{ totalCost: '1.000000' }],
+        ],
+      },
+      memberEmails: ['alice@example.com', 'bob@example.com'],
+    });
+
+    mockSendInsightEmail.mockResolvedValueOnce({ sent: true, messageId: 'msg-test' });
+
+    mockMessagesCreate.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '## Report\n\nAll good.' }],
+      usage: { input_tokens: 200, output_tokens: 50 },
+    });
+
+    const { generateWeeklyInsights } = await import('../workers/weekly-insights.ts');
+    const result = await generateWeeklyInsights();
+
+    expect(result.familiesProcessed).toBe(1);
+    expect(result.emailsSent).toBe(1);
+    expect(result.emailsFailed).toBe(0);
+    expect(mockSendInsightEmail).toHaveBeenCalledOnce();
+    expect(mockSendInsightEmail.mock.calls[0]![0].to).toEqual([
+      'alice@example.com',
+      'bob@example.com',
+    ]);
+  });
+
+  it('sets emailedAt on insight row when email succeeds', async () => {
+    const updates: unknown[] = [];
+
+    _mockDb = makeMockDb({
+      families: [{ id: FAMILY_ID }],
+      perFamilyResults: {
+        [FAMILY_ID]: [
+          [],
+          [{ totalCost: '1.000000' }],
+        ],
+      },
+      memberEmails: ['test@example.com'],
+      onUpdate: (s) => updates.push(s),
+    });
+
+    mockSendInsightEmail.mockResolvedValueOnce({ sent: true, messageId: 'msg-123' });
+
+    mockMessagesCreate.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '## Report' }],
+      usage: { input_tokens: 200, output_tokens: 50 },
+    });
+
+    const { generateWeeklyInsights } = await import('../workers/weekly-insights.ts');
+    await generateWeeklyInsights();
+
+    expect(updates.length).toBeGreaterThan(0);
+    const emailedUpdate = updates.find((u: any) => u.emailedAt instanceof Date);
+    expect(emailedUpdate).toBeTruthy();
+  });
+
+  it('does not set emailedAt when email is disabled (no API key)', async () => {
+    const updates: unknown[] = [];
+
+    _mockDb = makeMockDb({
+      families: [{ id: FAMILY_ID }],
+      perFamilyResults: {
+        [FAMILY_ID]: [
+          [],
+          [{ totalCost: '1.000000' }],
+        ],
+      },
+      memberEmails: ['test@example.com'],
+      onUpdate: (s) => updates.push(s),
+    });
+
+    // Default mock returns { sent: false } — email disabled
+    mockMessagesCreate.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '## Report' }],
+      usage: { input_tokens: 200, output_tokens: 50 },
+    });
+
+    const { generateWeeklyInsights } = await import('../workers/weekly-insights.ts');
+    const result = await generateWeeklyInsights();
+
+    expect(result.familiesProcessed).toBe(1);
+    expect(result.emailsSent).toBe(0);
+    expect(result.emailsFailed).toBe(1);
+    // No emailedAt update issued
+    const emailedUpdate = updates.find((u: any) => u.emailedAt instanceof Date);
+    expect(emailedUpdate).toBeUndefined();
+  });
+
+  it('email failure does not prevent insight from being saved', async () => {
+    const insightInserts: unknown[] = [];
+
+    _mockDb = makeMockDb({
+      families: [{ id: FAMILY_ID }],
+      perFamilyResults: {
+        [FAMILY_ID]: [
+          [],
+          [{ totalCost: '1.000000' }],
+        ],
+      },
+      memberEmails: ['test@example.com'],
+      onInsight: (v) => insightInserts.push(v),
+    });
+
+    mockSendInsightEmail.mockResolvedValueOnce({ sent: false, error: 'Resend API error' });
+
+    mockMessagesCreate.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '## Report\n\nContent here.' }],
+      usage: { input_tokens: 200, output_tokens: 50 },
+    });
+
+    const { generateWeeklyInsights } = await import('../workers/weekly-insights.ts');
+    const result = await generateWeeklyInsights();
+
+    // Insight was still saved
+    expect(result.familiesProcessed).toBe(1);
+    expect(result.errors).toHaveLength(0);
+    const insightRow = insightInserts.find((v: any) => v.period === 'weekly');
+    expect(insightRow).toBeTruthy();
+
+    // Email failed but did not crash
+    expect(result.emailsSent).toBe(0);
+    expect(result.emailsFailed).toBe(1);
   });
 });

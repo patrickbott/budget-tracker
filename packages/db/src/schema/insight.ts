@@ -53,6 +53,7 @@ export const insight = pgTable(
     costUsd: numeric('cost_usd', { precision: 10, scale: 6 })
       .notNull()
       .default('0'),
+    emailedAt: timestamp('emailed_at', { withTimezone: true, mode: 'date' }),
   },
   (table) => [
     index('insight_family_period_idx').on(
