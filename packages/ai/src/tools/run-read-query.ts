@@ -79,6 +79,11 @@ const FORBIDDEN_KEYWORDS = [
 /**
  * Build a single RegExp that matches any forbidden keyword at a word
  * boundary. The pattern is built once at module load.
+ *
+ * Known limitation: keywords inside SQL string literals (e.g.
+ * `WHERE description LIKE '%SET%'`) also match because the regex
+ * operates on raw text, not a parsed AST. This is acceptable —
+ * we prefer false rejections over false accepts.
  */
 const FORBIDDEN_RE = new RegExp(
   `\\b(?:${FORBIDDEN_KEYWORDS.join('|')})\\b`,

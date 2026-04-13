@@ -110,8 +110,7 @@ export const getGoalProgressTool: ToolAdapter<
       }
     }
 
-    // For debt payoff, if currentAmount > targetAmount it means more
-    // debt has been paid down than the target — cap at target
+    // Cap at target so percent_complete never exceeds 100%
     const effectiveAmount = currentAmount.gt(targetAmount)
       ? targetAmount
       : currentAmount;
