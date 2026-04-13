@@ -24,6 +24,8 @@
     "test:integration:watch": "vitest -c vitest.integration.config.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@budget-tracker/ai": "workspace:*",
     "@budget-tracker/core": "workspace:*",
     "@budget-tracker/db": "workspace:*",
     "@budget-tracker/simplefin": "workspace:*",
