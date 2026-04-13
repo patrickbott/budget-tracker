@@ -12,7 +12,6 @@ export {
   JOB_NAMES,
   type SyncConnectionPayload,
   type AutoCategorizePayload,
-  type WeeklyInsightsPayload,
 } from './job-names.ts';
 export { createBoss } from './boss-factory.ts';
 export {

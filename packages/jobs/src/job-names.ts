@@ -22,9 +22,3 @@ export const AutoCategorizePayloadSchema = z.object({
 });
 
 export type AutoCategorizePayload = z.infer<typeof AutoCategorizePayloadSchema>;
-
-export const WeeklyInsightsPayloadSchema = z.object({
-  familyId: z.string().uuid(),
-});
-
-export type WeeklyInsightsPayload = z.infer<typeof WeeklyInsightsPayloadSchema>;

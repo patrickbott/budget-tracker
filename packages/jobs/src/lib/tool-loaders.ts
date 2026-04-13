@@ -427,6 +427,11 @@ export function createToolLoadersForJob(
         visibility: r.visibility as 'household' | 'personal',
       }));
     },
+
+    // NOTE: After Instance A merges (adding loadGoals + runReadQuery to
+    // the ToolLoaders interface), rebase this branch and add:
+    //   loadGoals: async () => [],
+    //   runReadQuery: async () => { throw new Error('Not supported in batch context'); },
   };
 }
 
