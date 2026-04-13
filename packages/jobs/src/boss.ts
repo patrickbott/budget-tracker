@@ -1,9 +1,15 @@
 import type PgBoss from 'pg-boss';
 
-import { JOB_NAMES, SyncConnectionPayloadSchema } from './job-names.ts';
+import {
+  JOB_NAMES,
+  SyncConnectionPayloadSchema,
+  AutoCategorizePayloadSchema,
+} from './job-names.ts';
 import { syncConnection } from './workers/sync-connection.ts';
 import { syncAllFamilies } from './workers/sync-family.ts';
 import { pruneSyncRuns } from './workers/prune-sync-runs.ts';
+import { autoCategorize } from './workers/auto-categorize.ts';
+import { generateWeeklyInsights } from './workers/weekly-insights.ts';
 
 // Re-export factory from the split file.
 export { createBoss } from './boss-factory.ts';
@@ -22,7 +28,7 @@ export function registerJobs(boss: PgBoss): void {
   boss.work(JOB_NAMES.SYNC_CONNECTION, async (jobs) => {
     for (const job of jobs) {
       const payload = SyncConnectionPayloadSchema.parse(job.data);
-      await syncConnection(payload);
+      await syncConnection(payload, boss);
     }
   });
 
@@ -34,6 +40,19 @@ export function registerJobs(boss: PgBoss): void {
   // Null out raw_response_gzip on sync_run rows older than 7 days.
   boss.work(JOB_NAMES.PRUNE_SYNC_RUNS, async () => {
     await pruneSyncRuns();
+  });
+
+  // Haiku-powered auto-categorization for uncategorized entries after sync.
+  boss.work(JOB_NAMES.AUTO_CATEGORIZE, async (jobs) => {
+    for (const job of jobs) {
+      const payload = AutoCategorizePayloadSchema.parse(job.data);
+      await autoCategorize(payload);
+    }
+  });
+
+  // Weekly insights report generation (runs on a cron schedule).
+  boss.work(JOB_NAMES.WEEKLY_INSIGHTS, async () => {
+    await generateWeeklyInsights();
   });
 }
 
@@ -51,4 +70,7 @@ export async function registerSchedules(boss: PgBoss): Promise<void> {
 
   // Daily at 03:00 UTC: prune old sync_run raw payloads.
   await boss.schedule(JOB_NAMES.PRUNE_SYNC_RUNS, '0 3 * * *');
+
+  // Sunday at 06:00 UTC: generate weekly insights for all families.
+  await boss.schedule(JOB_NAMES.WEEKLY_INSIGHTS, '0 6 * * 0');
 }

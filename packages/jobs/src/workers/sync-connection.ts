@@ -1,10 +1,11 @@
-import { eq } from 'drizzle-orm';
-import { account, connection } from '@budget-tracker/db/schema';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { account, connection, entryLine } from '@budget-tracker/db/schema';
 import { createDb, withFamilyContext } from '@budget-tracker/db/client';
 import { buildEntriesForSimpleFinTransactions } from '@budget-tracker/core/entries';
 import { decryptAccessUrl, fetchAccountSet } from '@budget-tracker/simplefin';
+import type PgBoss from 'pg-boss';
 
-import type { SyncConnectionPayload } from '../job-names.ts';
+import { JOB_NAMES, type SyncConnectionPayload } from '../job-names.ts';
 import { findOrCreateAccountBySimpleFinId } from '../ingest/account-lookup.ts';
 import { findOrCreateUncategorized } from '../ingest/category-lookup.ts';
 import { upsertEntriesForSimpleFin } from '../ingest/upsert-entries.ts';
@@ -64,6 +65,7 @@ function getDb() {
  */
 export async function syncConnection(
   payload: SyncConnectionPayload,
+  boss?: PgBoss,
 ): Promise<SyncConnectionResult> {
   const db = getDb();
 
@@ -191,6 +193,34 @@ export async function syncConnection(
         payload.familyId,
         newEntryIds,
       );
+
+      // 6b-auto. Enqueue AI auto-categorization for entries that are
+      // still uncategorized after the rules pass. Only fires if an
+      // Anthropic API key is configured and there are uncategorized
+      // entries to process.
+      if (boss && newEntryIds.length > 0 && process.env.ANTHROPIC_API_KEY) {
+        const uncategorizedRows = await tx
+          .select({ entryId: entryLine.entryId })
+          .from(entryLine)
+          .where(
+            and(
+              inArray(entryLine.entryId, newEntryIds),
+              isNull(entryLine.accountId),
+              isNull(entryLine.categoryId),
+            ),
+          );
+
+        const uncategorizedEntryIds = [
+          ...new Set(uncategorizedRows.map((r) => r.entryId)),
+        ];
+
+        if (uncategorizedEntryIds.length > 0) {
+          await boss.send(JOB_NAMES.AUTO_CATEGORIZE, {
+            familyId: payload.familyId,
+            entryIds: uncategorizedEntryIds,
+          });
+        }
+      }
 
       // 6c. Scan the last 14 days for opposite-sign pairs that look
       // like transfers between owned accounts and persist them as
